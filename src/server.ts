@@ -1,0 +1,394 @@
+// The multiplayer server: players connect by telnet or with a web browser
+// (an xterm.js page talking over a web socket), log in, and play.
+//
+// Everything runs in this one process: each connection gets a Terminal and
+// a Session (the login screens, then a Game), sharing the world data and
+// the database.
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Socket, TCPSocketListener, Server, ServerWebSocket } from 'bun';
+import { Terminal } from '../engine/terminal.ts';
+import { World } from '../engine/world.ts';
+import { Game, readConfig, type Config, type Content } from '../engine/game.ts';
+import { readBestiary, type Bestiary } from '../engine/combat.ts';
+import { readItems, type ItemCatalogue } from '../engine/items.ts';
+import type { FlagRecord } from '../engine/player.ts';
+import { field, integer, oneOf, record, string } from '../engine/validate.ts';
+import { RemoteIO } from './remote.ts';
+import { Session } from './session.ts';
+import { Store } from './store.ts';
+import { TELNET_GREETING, TelnetParser } from './telnet.ts';
+
+export interface ServerOptions<F extends FlagRecord> {
+    content: Content<F>;
+    // The game's data folder (config.json, items.json, monsters.json, maps/).
+    dataDir: string;
+    // The database file, or ':memory:'.
+    database: string;
+    host?: string;
+    // null turns that way of connecting off; 0 picks a free port.
+    telnetPort?: number | null;
+    webPort?: number | null;
+    maxPlayers?: number;
+    idleMinutes?: number;
+    // How often to look for idle players, in milliseconds (default: 30s).
+    idleCheck?: number;
+    log?(line: string): void;
+    // For tests: quicker password hashing.
+    hashPassword?(password: string): Promise<string>;
+    verifyPassword?(password: string, hash: string): Promise<boolean>;
+}
+
+export interface RunningServer {
+    telnetPort: number | null;
+    webPort: number | null;
+    connections(): number;
+    // Saves everyone, says goodbye and closes every connection.
+    stop(): Promise<void>;
+}
+
+// How long telnet waits for the client to say its window size.
+const WINDOW_SIZE_WAIT = 500;
+// How often idle players are looked for.
+const IDLE_CHECK = 30_000;
+// The largest web socket message accepted.
+const MAX_MESSAGE = 4096;
+
+const PAGE = readFileSync(join(import.meta.dir, 'client.html'), 'utf8');
+
+interface Shared<F extends FlagRecord> {
+    world: World;
+    config: Config;
+    monsters: Bestiary;
+    items: ItemCatalogue;
+    content: Content<F>;
+    store: Store;
+}
+
+// One player's connection, whichever way they came in.
+class Connection<F extends FlagRecord> {
+    public readonly io: RemoteIO;
+    public readonly term: Terminal;
+    public session: Session<F> | null = null;
+    public finished: Promise<void> = Promise.resolve();
+    private closed = false;
+    private readonly hangUp: () => void;
+
+    public constructor(send: (text: string) => void, hangUp: () => void) {
+        this.io = new RemoteIO((text) => {
+            if (!this.closed) {
+                send(text);
+            }
+        });
+        this.term = new Terminal({ input: this.io.input, output: this.io.output });
+        this.hangUp = hangUp;
+    }
+
+    public get isClosed(): boolean {
+        return this.closed;
+    }
+
+    // Ends the connection from this end.
+    public close(): void {
+        if (this.closed) {
+            return;
+        }
+
+        this.closed = true;
+        this.term.disconnect();
+        this.hangUp();
+    }
+
+    // The other end has gone.
+    public lost(): void {
+        this.closed = true;
+        this.term.disconnect();
+    }
+
+    // A last line for the player before the connection closes.
+    public say(text: string): void {
+        this.io.output.write(`\x1b[0m\r\n${text}\r\n`);
+    }
+}
+
+export function startServer<F extends FlagRecord>(options: ServerOptions<F>): RunningServer {
+    const { content, dataDir, host = '127.0.0.1', telnetPort = 2323, webPort = 8080, maxPlayers = 50, idleMinutes = 30 } = options;
+    const log = options.log ?? ((line: string) => {
+        console.log(`${new Date().toISOString()} ${line}`);
+    });
+    const readJson = (file: string): unknown => JSON.parse(readFileSync(join(dataDir, file), 'utf8'));
+    const shared: Shared<F> = {
+        world: World.load(join(dataDir, 'maps')),
+        config: readConfig(readJson('config.json')),
+        monsters: readBestiary(readJson('monsters.json')),
+        items: readItems(readJson('items.json')),
+        content,
+        store: new Store(options.database),
+    };
+    const connections = new Set<Connection<F>>();
+    const playing = new Set<number>();
+
+    // Starts the session for a new connection (once the terminal size is known).
+    const begin = (connection: Connection<F>): void => {
+        const { term } = connection;
+        if (connections.size > maxPlayers) {
+            connection.say('The realm is full. Please try again later.');
+            connection.close();
+            return;
+        }
+
+        try {
+            term.start();
+        } catch (error) {
+            connection.say(error instanceof Error ? error.message : String(error));
+            connection.close();
+            return;
+        }
+
+        term.onInterrupt = () => {
+            connection.close();
+        };
+
+        const session = new Session<F>({
+            term,
+            store: shared.store,
+            content,
+            items: shared.items,
+            config: shared.config,
+            makeGame: (autosave) =>
+                new Game({ term, world: shared.world, config: shared.config, monsters: shared.monsters, items: shared.items, content, autosave, screensaver: false }),
+            claim: (id) => {
+                if (playing.has(id)) {
+                    return false;
+                }
+
+                playing.add(id);
+                return true;
+            },
+            release: (id) => {
+                playing.delete(id);
+            },
+            log,
+            ...(options.hashPassword ? { hashPassword: options.hashPassword } : {}),
+            ...(options.verifyPassword ? { verifyPassword: options.verifyPassword } : {}),
+        });
+        connection.session = session;
+        connection.finished = session.run().then(() => {
+            if (!connection.isClosed) {
+                term.stop();
+            }
+
+            connection.close();
+            connections.delete(connection);
+        });
+    };
+
+    // ---- Telnet
+
+    let telnet: TCPSocketListener<undefined> | null = null;
+    if (telnetPort !== null) {
+        const bySocket = new WeakMap<Socket, { connection: Connection<F>; parser: TelnetParser; started: boolean; pending: Uint8Array[] }>();
+        const encoder = new TextEncoder();
+        const write = (socket: Socket, bytes: Uint8Array): void => {
+            const state = bySocket.get(socket);
+            if (!state) {
+                return;
+            }
+
+            if (state.pending.length) {
+                state.pending.push(bytes);
+                return;
+            }
+
+            const written = socket.write(bytes);
+            if (written < bytes.length) {
+                state.pending.push(bytes.subarray(Math.max(0, written)));
+            }
+        };
+        const start = (socket: Socket): void => {
+            const state = bySocket.get(socket);
+            if (state && !state.started) {
+                state.started = true;
+                begin(state.connection);
+            }
+        };
+
+        telnet = Bun.listen({
+            hostname: host,
+            port: telnetPort,
+            socket: {
+                open: (socket) => {
+                    const connection = new Connection<F>(
+                        (text) => {
+                            write(socket, encoder.encode(text));
+                        },
+                        () => {
+                            socket.end();
+                        },
+                    );
+                    bySocket.set(socket, { connection, parser: new TelnetParser(), started: false, pending: [] });
+                    connections.add(connection);
+                    socket.write(TELNET_GREETING);
+                    setTimeout(() => {
+                        start(socket);
+                    }, WINDOW_SIZE_WAIT);
+                },
+                data: (socket, bytes) => {
+                    const state = bySocket.get(socket);
+                    if (!state) {
+                        return;
+                    }
+
+                    const { text, size } = state.parser.feed(bytes);
+                    if (size) {
+                        state.connection.io.resized(size.columns, size.rows);
+                        start(socket);
+                    }
+
+                    if (text) {
+                        state.connection.io.typed(text);
+                    }
+                },
+                drain: (socket) => {
+                    const state = bySocket.get(socket);
+                    while (state?.pending.length) {
+                        const [first] = state.pending;
+                        if (!first) {
+                            break;
+                        }
+
+                        const written = socket.write(first);
+                        if (written < first.length) {
+                            state.pending[0] = first.subarray(Math.max(0, written));
+                            return;
+                        }
+
+                        state.pending.shift();
+                    }
+                },
+                close: (socket) => {
+                    const state = bySocket.get(socket);
+                    if (state) {
+                        state.connection.lost();
+                        connections.delete(state.connection);
+                    }
+                },
+                error: (socket, error) => {
+                    log(`Telnet error: ${error.message}`);
+                    bySocket.get(socket)?.connection.lost();
+                },
+            },
+        });
+        log(`Telnet: ${host} port ${telnet.port}`);
+    }
+
+    // ---- The web
+
+    interface WebData {
+        connection: Connection<F> | null;
+    }
+
+    let web: Server<WebData> | null = null;
+    if (webPort !== null) {
+        const parse = oneOf(['input', 'resize'] as const);
+        web = Bun.serve<WebData>({
+            hostname: host,
+            port: webPort,
+            fetch: (request, server) => {
+                const url = new URL(request.url);
+                if (url.pathname === '/ws') {
+                    return server.upgrade(request, { data: { connection: null } }) ? undefined : new Response('Expected a web socket', { status: 400 });
+                }
+
+                if (url.pathname === '/') {
+                    return new Response(PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+                }
+
+                return new Response('Not found', { status: 404 });
+            },
+            websocket: {
+                maxPayloadLength: MAX_MESSAGE,
+                open: (ws: ServerWebSocket<WebData>) => {
+                    const connection = new Connection<F>(
+                        (text) => {
+                            ws.send(text);
+                        },
+                        () => {
+                            ws.close();
+                        },
+                    );
+                    ws.data.connection = connection;
+                    connections.add(connection);
+                },
+                message: (ws: ServerWebSocket<WebData>, message) => {
+                    const { connection } = ws.data;
+                    if (!connection || typeof message !== 'string') {
+                        return;
+                    }
+
+                    try {
+                        const r = record(JSON.parse(message), 'message');
+                        if (field(r, 'type', 'message', parse) === 'input') {
+                            connection.io.typed(field(r, 'data', 'message', string));
+                        } else {
+                            connection.io.resized(field(r, 'cols', 'message', integer), field(r, 'rows', 'message', integer));
+                            if (!connection.session) {
+                                begin(connection);
+                            }
+                        }
+                    } catch (error) {
+                        log(`Bad web message: ${error instanceof Error ? error.message : String(error)}`);
+                    }
+                },
+                close: (ws: ServerWebSocket<WebData>) => {
+                    const { connection } = ws.data;
+                    if (connection) {
+                        connection.lost();
+                        connections.delete(connection);
+                    }
+                },
+            },
+        });
+        log(`Web: http://${host}:${web.port}/`);
+    }
+
+    // ---- Idle players
+
+    const idleTimer = setInterval(() => {
+        const cutoff = Date.now() - idleMinutes * 60_000;
+        for (const connection of connections) {
+            if (connection.term.lastInput < cutoff) {
+                connection.say(`You've been idle for ${idleMinutes} minutes. Goodbye!`);
+                connection.close();
+            }
+        }
+    }, options.idleCheck ?? IDLE_CHECK);
+
+    return {
+        telnetPort: telnet?.port ?? null,
+        webPort: web?.port ?? null,
+        connections: () => connections.size,
+        stop: async () => {
+            clearInterval(idleTimer);
+            // Take no new players. (Bun 1.3's server.stop() promise never
+            // settles once a web socket has connected, though it does stop
+            // listening; so it isn't awaited.)
+            telnet?.stop();
+            void web?.stop();
+            // (Closing a connection takes it out of `connections`, so wait
+            // for the ones open now.)
+            const open = [...connections];
+            for (const connection of open) {
+                connection.session?.save();
+                connection.say('The server is shutting down. Your game was saved.');
+                connection.close();
+            }
+
+            await Promise.all(open.map((c) => c.finished));
+            telnet?.stop(true);
+            shared.store.close();
+        },
+    };
+}
+

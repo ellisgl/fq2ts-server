@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Final Quest 2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #111; color: #aaa; font: 14px system-ui, sans-serif; }
+  #screen { padding: 8px; background: #000; border: 1px solid #333; }
+  #status { min-height: 1.4em; }
+  button { font: inherit; padding: 4px 12px; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<div id="status">Connecting...</div>
+<button id="again" hidden>Connect again</button>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script>
+  // The game is 80x25 cells; the page sends what's typed and draws what
+  // the server sends.
+  const term = new Terminal({
+    cols: 80,
+    rows: 25,
+    fontFamily: '"DejaVu Sans Mono", Menlo, Consolas, monospace',
+    fontSize: 16,
+    cursorStyle: 'underline',
+    cursorBlink: true,
+    theme: { background: '#000000' },
+  });
+  term.open(document.getElementById('screen'));
+
+  const status = document.getElementById('status');
+  const again = document.getElementById('again');
+
+  function connect() {
+    term.reset();
+    again.hidden = true;
+    status.textContent = 'Connecting...';
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+    const typed = term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+    });
+    ws.onopen = () => {
+      status.textContent = 'Connected.';
+      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      term.focus();
+    };
+    ws.onmessage = (event) => term.write(event.data);
+    ws.onclose = () => {
+      typed.dispose();
+      status.textContent = 'Disconnected.';
+      again.hidden = false;
+    };
+  }
+
+  again.addEventListener('click', connect);
+  connect();
+</script>
+</body>
+</html>
