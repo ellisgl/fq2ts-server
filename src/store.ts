@@ -10,7 +10,7 @@
 // checked with restorePlayer when it's loaded.
 
 import { Database } from 'bun:sqlite';
-import { field, integer, oneOf, record, string } from '../engine/validate.ts';
+import { field, integer, oneOf, record, string } from '@fq2js/engine/validate';
 import type { CodePurpose } from './mail.ts';
 import { migrate } from './migrations.ts';
 

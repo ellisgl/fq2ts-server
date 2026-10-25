@@ -6,12 +6,12 @@
 // forgotten password is reset with another code; changing the address
 // takes the password, then a code sent to the new one.
 
-import { draw, escapeMarkup } from '../engine/text.ts';
-import { askText, choose } from '../engine/ui.ts';
-import { Disconnected, type Terminal } from '../engine/terminal.ts';
-import { restorePlayer, type FlagRecord, type Player } from '../engine/player.ts';
-import type { ItemCatalogue } from '../engine/items.ts';
-import type { Config, Content, Game } from '../engine/game.ts';
+import { draw, escapeMarkup } from '@fq2js/engine/text';
+import { askText, choose } from '@fq2js/engine/ui';
+import { Disconnected, type Terminal } from '@fq2js/engine/terminal';
+import { restorePlayer, type FlagRecord, type Player } from '@fq2js/engine/player';
+import type { ItemCatalogue } from '@fq2js/engine/items';
+import type { Config, Content, Game } from '@fq2js/engine/game';
 import { changedEmail, codeEmail, MAX_EMAIL, validEmail, type CodePurpose, type Mailer } from './mail.ts';
 import { CODE_MINUTES, validName, type Account, type Store } from './store.ts';
 

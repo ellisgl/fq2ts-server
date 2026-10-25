@@ -5,8 +5,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client as SshClient } from 'ssh2';
-import { startServer, type RunningServer, type ServerOptions } from '../../server/server.ts';
-import { TELNET, TELNET_GREETING } from '../../server/telnet.ts';
+import { startServer, type RunningServer, type ServerOptions } from '@fq2js/server/server';
+import { TELNET, TELNET_GREETING } from '@fq2js/server/telnet';
 import content from '../../content/index.ts';
 import type { Flags } from '../../content/start.ts';
 import { tempDir } from '../helpers.ts';
@@ -217,7 +217,7 @@ describe('telnet', () => {
     test('a window smaller than 80x25 is turned away', async () => {
         const server = start();
         const client = await telnet(server.telnetPort ?? 0, { size: [70, 20] });
-        await client.sees('at least 80x25 (this one is 70x20)');
+        await client.sees('This game needs a terminal of at least 80x25 (this one is 70x20)');
         await client.closed();
     });
 

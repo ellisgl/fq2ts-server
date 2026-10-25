@@ -8,13 +8,13 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Socket, TCPSocketListener, Server, ServerWebSocket } from 'bun';
-import { Terminal } from '../engine/terminal.ts';
-import { World } from '../engine/world.ts';
-import { Game, readConfig, type Config, type Content } from '../engine/game.ts';
-import { readBestiary, type Bestiary } from '../engine/combat.ts';
-import { readItems, type ItemCatalogue } from '../engine/items.ts';
-import type { FlagRecord } from '../engine/player.ts';
-import { field, integer, oneOf, record, string } from '../engine/validate.ts';
+import { Terminal } from '@fq2js/engine/terminal';
+import { World } from '@fq2js/engine/world';
+import { Game, readConfig, type Config, type Content } from '@fq2js/engine/game';
+import { readBestiary, type Bestiary } from '@fq2js/engine/combat';
+import { readItems, type ItemCatalogue } from '@fq2js/engine/items';
+import type { FlagRecord } from '@fq2js/engine/player';
+import { field, integer, oneOf, record, string } from '@fq2js/engine/validate';
 import { RemoteIO } from './remote.ts';
 import { logMailer, type Mailer } from './mail.ts';
 import { Session } from './session.ts';
@@ -35,6 +35,8 @@ export interface ServerOptions<F extends FlagRecord> {
     // SSH is off unless given a port and the file for its host key (made
     // if it isn't there).
     ssh?: { port: number; hostKeyFile: string } | null;
+    // The game's name, for players whose terminal won't do (default: "This game").
+    gameName?: string;
     // A way of connecting failed after starting (its port was taken).
     onError?(error: Error): void;
     maxPlayers?: number;
@@ -90,13 +92,13 @@ class Connection<F extends FlagRecord> {
     private closed = false;
     private readonly hangUp: () => void;
 
-    public constructor(send: (text: string) => void, hangUp: () => void) {
+    public constructor(send: (text: string) => void, hangUp: () => void, name?: string) {
         this.io = new RemoteIO((text) => {
             if (!this.closed) {
                 send(text);
             }
         });
-        this.term = new Terminal({ input: this.io.input, output: this.io.output });
+        this.term = new Terminal({ input: this.io.input, output: this.io.output, ...(name === undefined ? {} : { name }) });
         this.hangUp = hangUp;
     }
 
@@ -143,6 +145,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
         store: new Store(options.database, { log }),
     };
     const connections = new Set<Connection<F>>();
+    const connect = (send: (text: string) => void, hangUp: () => void): Connection<F> => new Connection<F>(send, hangUp, options.gameName);
     const playing = new Set<number>();
 
     // Starts the session for a new connection (once the terminal size is known).
@@ -251,7 +254,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
             port: telnetPort,
             socket: {
                 open: (socket) => {
-                    const connection = new Connection<F>(
+                    const connection = connect(
                         (text) => {
                             write(socket, encoder.encode(text));
                         },
@@ -346,7 +349,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
                 backpressureLimit: MAX_PENDING,
                 closeOnBackpressureLimit: true,
                 open: (ws: ServerWebSocket<WebData>) => {
-                    const connection = new Connection<F>(
+                    const connection = connect(
                         (text) => {
                             ws.send(text);
                         },
@@ -403,7 +406,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
             log,
             maxPending: MAX_PENDING,
             connect: ({ columns, rows }, send, hangUp) => {
-                const connection = new Connection<F>(send, hangUp);
+                const connection = connect(send, hangUp);
                 connection.io.resized(columns, rows);
                 connections.add(connection);
                 begin(connection);

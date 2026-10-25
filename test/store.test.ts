@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
-import { CODE_MINUTES, CODE_TRIES, Store, validName } from '../../server/store.ts';
-import { tempDir } from '../helpers.ts';
+import { CODE_MINUTES, CODE_TRIES, Store, validName } from '../src/store.ts';
+import { tempDir } from '@fq2js/engine/testing';
 
 describe('Store', () => {
     test('accounts: names are unique in any case, and looked up in any case', () => {

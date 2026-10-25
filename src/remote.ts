@@ -4,8 +4,8 @@
 // the game writes.
 
 import { EventEmitter } from 'node:events';
-import type { TerminalInput, TerminalOutput } from '../engine/terminal.ts';
-import { HEIGHT, WIDTH } from '../engine/screen.ts';
+import type { TerminalInput, TerminalOutput } from '@fq2js/engine/terminal';
+import { HEIGHT, WIDTH } from '@fq2js/engine/screen';
 
 export class RemoteIO {
     public readonly input: TerminalInput;

@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
-import { MAX_EMAILS, RESEND_WAIT, Session } from '../../server/session.ts';
-import { Store } from '../../server/store.ts';
-import type { Email } from '../../server/mail.ts';
-import { Game } from '../../engine/game.ts';
+import { MAX_EMAILS, RESEND_WAIT, Session } from '@fq2js/server/session';
+import { Store } from '@fq2js/server/store';
+import type { Email } from '@fq2js/server/mail';
+import { Game } from '@fq2js/engine/game';
 import content from '../../content/index.ts';
 import { bestiary, config, FakeTerminal, gameWorld, itemCatalogue, newPlayer, pick, row, screenText, tempDir, typed, type Step } from '../helpers.ts';
 

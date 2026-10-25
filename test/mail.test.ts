@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { codeEmail, logMailer, smtpMailer, validEmail } from '../../server/mail.ts';
-import { caught } from '../helpers.ts';
+import { codeEmail, logMailer, smtpMailer, validEmail } from '../src/mail.ts';
+import { caught } from '@fq2js/engine/testing';
 
 test.each([
     ['hero@example.com', true],
