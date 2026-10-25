@@ -18,6 +18,7 @@ import { field, integer, oneOf, record, string } from '../engine/validate.ts';
 import { RemoteIO } from './remote.ts';
 import { logMailer, type Mailer } from './mail.ts';
 import { Session } from './session.ts';
+import { listenSsh, type SshServer } from './ssh.ts';
 import { Store } from './store.ts';
 import { TELNET_GREETING, TelnetParser } from './telnet.ts';
 
@@ -31,6 +32,11 @@ export interface ServerOptions<F extends FlagRecord> {
     // null turns that way of connecting off; 0 picks a free port.
     telnetPort?: number | null;
     webPort?: number | null;
+    // SSH is off unless given a port and the file for its host key (made
+    // if it isn't there).
+    ssh?: { port: number; hostKeyFile: string } | null;
+    // A way of connecting failed after starting (its port was taken).
+    onError?(error: Error): void;
     maxPlayers?: number;
     idleMinutes?: number;
     // How often to look for idle players, in milliseconds (default: 30s).
@@ -47,6 +53,7 @@ export interface ServerOptions<F extends FlagRecord> {
 export interface RunningServer {
     telnetPort: number | null;
     webPort: number | null;
+    sshPort: number | null;
     connections(): number;
     // Saves everyone, says goodbye and closes every connection.
     stop(): Promise<void>;
@@ -385,6 +392,43 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
         log(`Web: http://${host}:${web.port}/`);
     }
 
+    // ---- SSH
+
+    let ssh: SshServer | null = null;
+    if (options.ssh) {
+        ssh = listenSsh({
+            host,
+            port: options.ssh.port,
+            hostKeyFile: options.ssh.hostKeyFile,
+            log,
+            maxPending: MAX_PENDING,
+            connect: ({ columns, rows }, send, hangUp) => {
+                const connection = new Connection<F>(send, hangUp);
+                connection.io.resized(columns, rows);
+                connections.add(connection);
+                begin(connection);
+                return {
+                    typed: (text) => {
+                        connection.io.typed(text);
+                    },
+                    resized: (c, r) => {
+                        connection.io.resized(c, r);
+                    },
+                    lost: () => {
+                        connection.lost();
+                        connections.delete(connection);
+                    },
+                };
+            },
+            failed: (error) => {
+                (options.onError ?? ((e: Error) => {
+                    log(`SSH: ${e.message}`);
+                }))(error);
+            },
+        });
+        log(`SSH: ${host} port ${ssh.port}`);
+    }
+
     // ---- Idle players
 
     const idleTimer = setInterval(() => {
@@ -400,6 +444,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
     return {
         telnetPort: telnet?.port ?? null,
         webPort: web?.port ?? null,
+        sshPort: ssh?.port ?? null,
         connections: () => connections.size,
         stop: async () => {
             clearInterval(idleTimer);
@@ -408,6 +453,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
             // listening; so it isn't awaited.)
             telnet?.stop();
             void web?.stop();
+            ssh?.stop();
             // (Closing a connection takes it out of `connections`, so wait
             // for the ones open now.)
             const open = [...connections];

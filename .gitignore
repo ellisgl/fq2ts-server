@@ -7,3 +7,4 @@ server-data/
 .env.local
 .env.dev
 .env.test
+plans_and_questions.txt

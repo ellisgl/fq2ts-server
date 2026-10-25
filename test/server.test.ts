@@ -2,11 +2,14 @@
 // its web socket.
 
 import { afterEach, describe, expect, test } from 'bun:test';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
+import { Client as SshClient } from 'ssh2';
 import { startServer, type RunningServer, type ServerOptions } from '../../server/server.ts';
 import { TELNET, TELNET_GREETING } from '../../server/telnet.ts';
 import content from '../../content/index.ts';
 import type { Flags } from '../../content/start.ts';
+import { tempDir } from '../helpers.ts';
 
 const { IAC, SB, SE, NAWS } = TELNET;
 const DATA = join(import.meta.dir, '..', '..', 'data');
@@ -113,6 +116,45 @@ async function browser(port: number): Promise<Client & { ws: WebSocket }> {
         closed: () => until('the web socket to close', () => isClosed),
         received: () => plain(text),
         raw: () => new TextEncoder().encode(text),
+    };
+}
+
+async function ssh(port: number, { size = [80, 25] as [number, number], user = 'anyone' } = {}): Promise<Client & { resize(columns: number, rows: number): void }> {
+    let text = '';
+    let isClosed = false;
+    const client = new SshClient();
+    const stream = await new Promise<import('ssh2').ClientChannel>((resolve, reject) => {
+        client
+            .on('ready', () => {
+                client.shell({ cols: size[0], rows: size[1], term: 'xterm' }, (error, channel) => {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(channel);
+                    }
+                });
+            })
+            .on('error', reject)
+            .connect({ host: '127.0.0.1', port, username: user });
+    });
+    stream.on('data', (data: Buffer) => {
+        text += data.toString('utf8');
+    });
+    stream.on('close', () => {
+        isClosed = true;
+        client.end();
+    });
+    return {
+        send: (data) => {
+            stream.write(typeof data === 'string' ? data : Buffer.from(data));
+        },
+        sees: (wanted) => until(`"${wanted}"`, () => plain(text).includes(wanted)),
+        closed: () => until('the SSH connection to close', () => isClosed),
+        received: () => plain(text),
+        raw: () => new TextEncoder().encode(text),
+        resize: (columns, rows) => {
+            stream.setWindow(rows, columns, 0, 0);
+        },
     };
 }
 
@@ -244,6 +286,57 @@ describe('the web', () => {
         const server = start({ webPort: null });
         expect(server.webPort).toBeNull();
         expect(server.telnetPort).not.toBeNull();
+    });
+});
+
+describe('SSH', () => {
+    const withSsh = (): RunningServer => start({ ssh: { port: 0, hostKeyFile: join(tempDir(), 'host_key') } });
+
+    test('any user name gets in, to the login menu, and plays', async () => {
+        const server = withSsh();
+        const client = await ssh(server.sshPort ?? 0, { user: 'whoever' });
+        await newPlayer(client);
+        await client.sees('House');
+        client.send('\x03');
+        await client.closed();
+        await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
+    });
+
+    test('the window size comes from the terminal; a new size redraws the screen', async () => {
+        const server = withSsh();
+        const small = await ssh(server.sshPort ?? 0, { size: [70, 20] });
+        await small.sees('at least 80x25 (this one is 70x20)');
+        await small.closed();
+        const client = await ssh(server.sshPort ?? 0, { size: [100, 30] });
+        await client.sees('Log');
+        const count = (): number => client.received().split('Forgot password').length - 1;
+        expect(count()).toBe(1);
+        client.resize(120, 40);
+        await until('a redraw', () => count() === 2);
+    });
+
+    test('the host key is made once, readable only by its owner, and kept', async () => {
+        const file = join(tempDir(), 'host_key');
+        const first = start({ ssh: { port: 0, hostKeyFile: file } });
+        const key = await Bun.file(file).text();
+        expect(key).toContain('BEGIN OPENSSH PRIVATE KEY');
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+        await first.stop();
+        start({ ssh: { port: 0, hostKeyFile: file } });
+        expect(await Bun.file(file).text()).toBe(key);
+    });
+
+    test('SSH is off unless asked for', () => {
+        expect(start().sshPort).toBeNull();
+    });
+
+    test('a port already taken is reported', async () => {
+        const errors: Error[] = [];
+        const first = withSsh();
+        start({ ssh: { port: first.sshPort ?? 0, hostKeyFile: join(tempDir(), 'k') }, onError: (error) => errors.push(error), telnetPort: null, webPort: null });
+        await until('the error', () => errors.length > 0);
+        expect(errors[0]).toMatchObject({ code: 'EADDRINUSE' });
+        await first.stop();
     });
 });
 
