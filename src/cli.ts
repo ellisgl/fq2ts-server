@@ -11,6 +11,7 @@ import { mkdirSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import type { Content } from '@fq2js/engine/game';
 import type { FlagRecord } from '@fq2js/engine/player';
+import { loadMods, type LoadedMod } from '@fq2js/engine/mods';
 import { startServer, type RunningServer } from './server.ts';
 import { smtpMailer, type Mailer } from './mail.ts';
 
@@ -47,6 +48,8 @@ ${prefix}TELNET_PORT, and so on. Options given here win.
   --no-ssh              don't accept SSH
   --data DIR            where the database and the SSH host key go
                         (default: server-data)
+  --mods DIR            the mods to add to the game, a folder each
+                        (default: mods, if there is one)
   --max-players N       connections at once (default: 50)
   --idle-minutes N      disconnect players idle this long (default: 30)
   --smtp-host HOST      the mail server that sends players' codes (without
@@ -58,7 +61,7 @@ ${prefix}TELNET_PORT, and so on. Options given here win.
   -h, --help            show this help`;
 
 // Runs the server until it's stopped (Ctrl-C), or exits if it can't start.
-export function runServer<F extends FlagRecord>({ content, gameData, name, database = 'game.sqlite', args = process.argv.slice(2), envPrefix = 'FQ2_' }: ServerCli<F>): void {
+export async function runServer<F extends FlagRecord>({ content, gameData, name, database = 'game.sqlite', args = process.argv.slice(2), envPrefix = 'FQ2_' }: ServerCli<F>): Promise<void> {
     const { values } = parseArgs({
         args: [...args],
         options: {
@@ -70,6 +73,7 @@ export function runServer<F extends FlagRecord>({ content, gameData, name, datab
             'ssh-port': { type: 'string' },
             'no-ssh': { type: 'boolean' },
             'data': { type: 'string' },
+            'mods': { type: 'string' },
             'max-players': { type: 'string' },
             'idle-minutes': { type: 'string' },
             'smtp-host': { type: 'string' },
@@ -150,6 +154,13 @@ export function runServer<F extends FlagRecord>({ content, gameData, name, datab
 
     const dataDir = resolve(setting('data', 'server-data'));
     const mail = mailer();
+    let mods: LoadedMod[] = [];
+    try {
+        mods = await loadMods(resolve(setting('mods', 'mods')));
+    } catch (error) {
+        fail(`A mod couldn't be loaded: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
     mkdirSync(dataDir, { recursive: true });
 
     // Starts the server, or explains why it can't (a port someone else has,
@@ -169,6 +180,7 @@ export function runServer<F extends FlagRecord>({ content, gameData, name, datab
                     fail(couldNotStart(error));
                 },
                 maxPlayers: number('max-players', 50),
+                mods,
                 idleMinutes: number('idle-minutes', 30),
                 ...(mail ? { mailer: mail } : {}),
             });

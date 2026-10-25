@@ -9,6 +9,7 @@ import { startServer, type RunningServer, type ServerOptions } from '../src/serv
 import { TELNET, TELNET_GREETING } from '../src/telnet.ts';
 import { tempDir } from '@fq2js/engine/testing';
 import { content, FIXTURE_DATA, type TestFlags } from '@fq2js/engine/fixture';
+import { MOD_API, readMod, type ModContext } from '@fq2js/engine/mods';
 
 const { IAC, SB, SE, NAWS } = TELNET;
 const DOWN = '\x1b[B';
@@ -338,6 +339,17 @@ describe('SSH', () => {
         expect(errors[0]).toMatchObject({ code: 'EADDRINUSE' });
         await first.stop();
     });
+});
+
+test('mods are added to the game, and listed in the log', async () => {
+    const mod = readMod({ id: 'sign', name: 'A Sign', version: '2.0', api: MOD_API, screens: { 1: { show: (g: ModContext) => {
+        g.overlay('{x 2}{y 3}MODDED');
+    } } } }, 'sign/mod.ts');
+    const server = start({ mods: [{ mod, dir: 'sign', items: null, monsters: null, maps: [] }] });
+    expect(logs).toContain('Mod: A Sign 2.0 (sign)');
+    const client = await telnet(server.telnetPort ?? 0);
+    await newPlayer(client);
+    await client.sees('MODDED');
 });
 
 describe('limits and shutting down', () => {

@@ -9,10 +9,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Socket, TCPSocketListener, Server, ServerWebSocket } from 'bun';
 import { Terminal } from '@fq2js/engine/terminal';
-import { World } from '@fq2js/engine/world';
-import { Game, readConfig, type Config, type Content } from '@fq2js/engine/game';
-import { readBestiary, type Bestiary } from '@fq2js/engine/combat';
-import { readItems, type ItemCatalogue } from '@fq2js/engine/items';
+import type { World } from '@fq2js/engine/world';
+import { Game, type Config, type Content } from '@fq2js/engine/game';
+import type { Bestiary } from '@fq2js/engine/combat';
+import type { ItemCatalogue } from '@fq2js/engine/items';
+import { readGameData } from '@fq2js/engine/data';
+import { applyMods, describeMod, type LoadedMod } from '@fq2js/engine/mods';
 import type { FlagRecord } from '@fq2js/engine/player';
 import { field, integer, oneOf, record, string } from '@fq2js/engine/validate';
 import { RemoteIO } from './remote.ts';
@@ -44,6 +46,8 @@ export interface ServerOptions<F extends FlagRecord> {
     // How often to look for idle players, in milliseconds (default: 30s).
     idleCheck?: number;
     log?(line: string): void;
+    // Mods to add to the game (see @fq2js/engine/mods: loadMods reads them).
+    mods?: readonly LoadedMod[];
     // Sends the codes that confirm addresses and reset passwords (default:
     // writes them to the log).
     mailer?: Mailer;
@@ -135,13 +139,15 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
         console.log(`${new Date().toISOString()} ${line}`);
     });
     const mailer = options.mailer ?? logMailer(log);
-    const readJson = (file: string): unknown => JSON.parse(readFileSync(join(dataDir, file), 'utf8'));
+    const { config, ...data } = readGameData(dataDir);
+    const mods = options.mods ?? [];
+    for (const mod of mods) {
+        log(`Mod: ${describeMod(mod)}`);
+    }
+
     const shared: Shared<F> = {
-        world: World.load(join(dataDir, 'maps')),
-        config: readConfig(readJson('config.json')),
-        monsters: readBestiary(readJson('monsters.json')),
-        items: readItems(readJson('items.json')),
-        content,
+        ...applyMods({ content, ...data }, mods),
+        config,
         store: new Store(options.database, { log }),
     };
     const connections = new Set<Connection<F>>();
@@ -176,11 +182,11 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
         const session = new Session<F>({
             term,
             store: shared.store,
-            content,
+            content: shared.content,
             items: shared.items,
             config: shared.config,
             makeGame: (autosave) =>
-                new Game({ term, world: shared.world, config: shared.config, monsters: shared.monsters, items: shared.items, content, autosave, screensaver: false }),
+                new Game({ term, world: shared.world, config: shared.config, monsters: shared.monsters, items: shared.items, content: shared.content, autosave, screensaver: false }),
             claim: (id) => {
                 if (playing.has(id)) {
                     return false;
