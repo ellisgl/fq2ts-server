@@ -47,10 +47,29 @@ const answer = (reply: (() => void) | undefined): void => {
 // Only its owner can read it.
 export function hostKey(file: string): string {
     if (!existsSync(file)) {
-        writeFileSync(file, utils.generateKeyPairSync('ed25519').private, { mode: 0o600, flag: 'wx' });
+        writeFileSync(file, newHostKey(), { mode: 0o600, flag: 'wx' });
     }
 
-    return readFileSync(file, 'utf8');
+    const key = readFileSync(file, 'utf8');
+    const parsed = utils.parseKey(key);
+    if (parsed instanceof Error) {
+        throw new Error(`The SSH host key in ${file} can't be read (${parsed.message}). Move it away, and a new one is made.`);
+    }
+
+    return key;
+}
+
+// A new ed25519 key. About one time in 250, ssh2 makes one a byte short,
+// which it then can't read; so each is checked, and a bad one made again.
+export function newHostKey(generate: () => string = () => utils.generateKeyPairSync('ed25519').private): string {
+    for (let tries = 0; tries < 10; tries++) {
+        const key = generate();
+        if (!(utils.parseKey(key) instanceof Error)) {
+            return key;
+        }
+    }
+
+    throw new Error("Couldn't make an SSH host key.");
 }
 
 export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, failed }: SshOptions): SshServer {

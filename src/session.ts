@@ -31,9 +31,9 @@ export interface SessionOptions<F extends FlagRecord> {
     items: ItemCatalogue;
     config: Config;
     // Makes this connection's game, which saves the player through `autosave`.
-    makeGame(autosave: (player: Player<F>) => void): Game<F>;
+    makeGame(account: Account, autosave: (player: Player<F>) => void): Game<F>;
     // Marks an account as playing; false if it already is (elsewhere).
-    claim(accountId: number): boolean;
+    claim(account: Account): boolean;
     release(accountId: number): void;
     log(line: string): void;
     mailer: Mailer;
@@ -444,7 +444,7 @@ export class Session<F extends FlagRecord> {
 
     private async play(account: Account): Promise<void> {
         const { store, content, items } = this.options;
-        if (!this.options.claim(account.id)) {
+        if (!this.options.claim(account)) {
             await this.pause('{yellow}You are already in the realm somewhere else.');
             return;
         }
@@ -452,7 +452,7 @@ export class Session<F extends FlagRecord> {
         try {
             store.noteLogin(account.id);
             this.options.log(`${account.name} enters the realm.`);
-            const game = this.options.makeGame((player) => {
+            const game = this.options.makeGame(account, (player) => {
                 store.savePlayer(account.id, player);
             });
             this.playing = { account, game };

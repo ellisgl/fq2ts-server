@@ -2,11 +2,13 @@
 // its web socket.
 
 import { afterEach, describe, expect, test } from 'bun:test';
-import { statSync } from 'node:fs';
+import { statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client as SshClient } from 'ssh2';
 import { startServer, type RunningServer, type ServerOptions } from '../src/server.ts';
 import { TELNET, TELNET_GREETING } from '../src/telnet.ts';
+import { ScreenModel } from './screen-model.ts';
+import { hostKey, newHostKey } from '../src/ssh.ts';
 import { tempDir } from '@fq2js/engine/testing';
 import { content, FIXTURE_DATA, type TestFlags } from '@fq2js/engine/fixture';
 import { MOD_API, readMod, type ModContext } from '@fq2js/engine/mods';
@@ -41,6 +43,7 @@ function start(options: Partial<ServerOptions<TestFlags>> = {}): RunningServer {
 // What a client has seen, as plain text (escape sequences taken out).
 const plain = (text: string): string => text.replace(/\x1b\[[0-9;?<]*[A-Za-z ]/g, '');
 
+
 // Waits until `ready` says yes, or fails after a while.
 async function until(what: string, ready: () => boolean, ms = 3000): Promise<void> {
     const end = Date.now() + ms;
@@ -55,8 +58,10 @@ async function until(what: string, ready: () => boolean, ms = 3000): Promise<voi
 
 interface Client {
     send(data: string | Uint8Array): void;
-    // Waits for this text to have been sent to the client.
+    // Waits for this text to be on the client's screen.
     sees(text: string): Promise<void>;
+    // The client's screen now.
+    screen(): string;
     closed(): Promise<void>;
     received(): string;
     raw(): Uint8Array;
@@ -65,12 +70,20 @@ interface Client {
 async function telnet(port: number, { size = [80, 25] as [number, number] | null } = {}): Promise<Client> {
     const chunks: Uint8Array[] = [];
     let isClosed = false;
+    const model = new ScreenModel();
+    const decoder = new TextDecoder();
+    // The greeting is telnet commands, not text for the screen.
+    let greeting = TELNET_GREETING.length;
     const socket = await Bun.connect({
         hostname: '127.0.0.1',
         port,
         socket: {
             data: (_socket, data) => {
-                chunks.push(new Uint8Array(data));
+                const bytes = new Uint8Array(data);
+                chunks.push(bytes);
+                const skip = Math.min(greeting, bytes.length);
+                greeting -= skip;
+                model.feed(decoder.decode(bytes.subarray(skip), { stream: true }));
             },
             close: () => {
                 isClosed = true;
@@ -88,7 +101,8 @@ async function telnet(port: number, { size = [80, 25] as [number, number] | null
         send: (data) => {
             socket.write(typeof data === 'string' ? new TextEncoder().encode(data) : data);
         },
-        sees: (text) => until(`"${text}"`, () => received().includes(text)),
+        sees: (text) => until(`"${text}"`, () => model.text().includes(text)),
+        screen: () => model.text(),
         closed: () => until('the connection to close', () => isClosed),
         received,
         raw,
@@ -98,9 +112,11 @@ async function telnet(port: number, { size = [80, 25] as [number, number] | null
 async function browser(port: number): Promise<Client & { ws: WebSocket }> {
     let text = '';
     let isClosed = false;
+    const model = new ScreenModel();
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     ws.onmessage = (event: MessageEvent<string>) => {
         text += event.data;
+        model.feed(event.data);
     };
     ws.onclose = () => {
         isClosed = true;
@@ -111,7 +127,8 @@ async function browser(port: number): Promise<Client & { ws: WebSocket }> {
         send: (data) => {
             ws.send(typeof data === 'string' ? JSON.stringify({ type: 'input', data }) : data);
         },
-        sees: (wanted) => until(`"${wanted}"`, () => plain(text).includes(wanted)),
+        sees: (wanted) => until(`"${wanted}"`, () => model.text().includes(wanted)),
+        screen: () => model.text(),
         closed: () => until('the web socket to close', () => isClosed),
         received: () => plain(text),
         raw: () => new TextEncoder().encode(text),
@@ -121,6 +138,7 @@ async function browser(port: number): Promise<Client & { ws: WebSocket }> {
 async function ssh(port: number, { size = [80, 25] as [number, number], user = 'anyone' } = {}): Promise<Client & { resize(columns: number, rows: number): void }> {
     let text = '';
     let isClosed = false;
+    const model = new ScreenModel();
     const client = new SshClient();
     const stream = await new Promise<import('ssh2').ClientChannel>((resolve, reject) => {
         client
@@ -136,8 +154,11 @@ async function ssh(port: number, { size = [80, 25] as [number, number], user = '
             .on('error', reject)
             .connect({ host: '127.0.0.1', port, username: user });
     });
+    const decoder = new TextDecoder();
     stream.on('data', (data: Buffer) => {
-        text += data.toString('utf8');
+        const chunk = decoder.decode(data, { stream: true });
+        text += chunk;
+        model.feed(chunk);
     });
     stream.on('close', () => {
         isClosed = true;
@@ -147,7 +168,8 @@ async function ssh(port: number, { size = [80, 25] as [number, number], user = '
         send: (data) => {
             stream.write(typeof data === 'string' ? data : Buffer.from(data));
         },
-        sees: (wanted) => until(`"${wanted}"`, () => plain(text).includes(wanted)),
+        sees: (wanted) => until(`"${wanted}"`, () => model.text().includes(wanted)),
+        screen: () => model.text(),
         closed: () => until('the SSH connection to close', () => isClosed),
         received: () => plain(text),
         raw: () => new TextEncoder().encode(text),
@@ -156,10 +178,6 @@ async function ssh(port: number, { size = [80, 25] as [number, number], user = '
         },
     };
 }
-
-// (The screen is sent as changes, so text on it can arrive with the spaces
-// that were already there left out: tests look for words without spaces,
-// like the status line's "100/100".)
 
 // Makes an account and plays into a new game, from the login menu.
 async function newPlayer(client: Client, name = 'Hero'): Promise<void> {
@@ -170,8 +188,9 @@ async function newPlayer(client: Client, name = 'Hero'): Promise<void> {
     await client.sees('Email:');
     client.send(`${name.toLowerCase()}@example.com\r`);
     // With no mail server, the email goes to the log.
-    await until('the code to be emailed', () => logs.some((line) => line.includes('your code is')));
-    const code = /your code is (\d+)/.exec(logs.find((line) => line.includes('your code is')) ?? '')?.[1] ?? '';
+    const email = `Email to ${name.toLowerCase()}@example.com:`;
+    await until('the code to be emailed', () => logs.some((line) => line.startsWith(email)));
+    const code = /your code is (\d+)/.exec(logs.findLast((line) => line.startsWith(email)) ?? '')?.[1] ?? '';
     client.send(`${code}\r`);
     await client.sees('A NEW GAME BEGINS');
     client.send(' ');
@@ -191,7 +210,7 @@ describe('telnet', () => {
         const port = server.telnetPort ?? 0;
         const first = await telnet(port);
         await newPlayer(first);
-        await first.sees('100/100');
+        await first.sees('HP 100/100');
         first.send('\x1b[C');
         first.send('\x1b');
         await first.sees('Return');
@@ -205,7 +224,7 @@ describe('telnet', () => {
         again.send('\r');
         await again.sees('Name:');
         again.send('hero\rsecret1\r');
-        await again.sees('100/100');
+        await again.sees('HP 100/100');
         expect(logs.filter((line) => line === 'Hero enters the realm.')).toHaveLength(2);
     });
 
@@ -226,7 +245,7 @@ describe('telnet', () => {
         const server = start();
         const client = await telnet(server.telnetPort ?? 0);
         await newPlayer(client);
-        await client.sees('100/100');
+        await client.sees('HP 100/100');
         client.send('\x03');
         await client.closed();
         await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
@@ -238,13 +257,42 @@ describe('telnet', () => {
         const port = server.telnetPort ?? 0;
         const first = await telnet(port);
         await newPlayer(first);
-        await first.sees('100/100');
+        await first.sees('HP 100/100');
         const second = await telnet(port);
         await second.sees('Log');
         second.send('\r');
         await second.sees('Name:');
         second.send('hero\rsecret1\r');
         await second.sees('already');
+    });
+});
+
+describe('the realm', () => {
+    test('players see each other arrive, walk about and leave; P lists them', async () => {
+        const server = start();
+        const port = server.telnetPort ?? 0;
+        const ann = await telnet(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        const bob = await telnet(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        await ann.sees('Bob enters the realm.');
+
+        // Both start on screen 1; Bob walks two steps east, and Ann sees him
+        // (as ☻: she's ☺).
+        bob.send('\x1b[C\x1b[C');
+        await ann.sees('☻');
+
+        ann.send('p');
+        await ann.sees("Who's in the realm (2)");
+        await ann.sees('Ann');
+        await ann.sees('Bob');
+        ann.send('\x1b');
+
+        bob.send('\x03');
+        await bob.closed();
+        await ann.sees('Bob leaves the realm.');
     });
 });
 
@@ -264,7 +312,7 @@ describe('the web', () => {
         const client = await browser(server.webPort ?? 0);
         client.ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 25 }));
         await newPlayer(client);
-        await client.sees('100/100');
+        await client.sees('HP 100/100');
     });
 
     test('a browser that never says its size starts anyway (at 80x25)', async () => {
@@ -297,7 +345,7 @@ describe('SSH', () => {
         const server = withSsh();
         const client = await ssh(server.sshPort ?? 0, { user: 'whoever' });
         await newPlayer(client);
-        await client.sees('100/100');
+        await client.sees('HP 100/100');
         client.send('\x03');
         await client.closed();
         await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
@@ -325,6 +373,21 @@ describe('SSH', () => {
         await first.stop();
         start({ ssh: { port: 0, hostKeyFile: file } });
         expect(await Bun.file(file).text()).toBe(key);
+    });
+
+    test('a bad new key is made again, and a bad key file is reported', () => {
+        const good = newHostKey();
+        // One byte short, as ssh2 sometimes makes them.
+        const [head = '', ...rest] = good.split('\n');
+        const body = Buffer.from(rest.slice(0, -2).join(''), 'base64');
+        const short = [head, body.subarray(0, -1).toString('base64'), ...rest.slice(-2)].join('\n');
+        const made = [short, good];
+        expect(newHostKey(() => made.shift() ?? '')).toBe(good);
+        expect(() => newHostKey(() => short)).toThrow("Couldn't make an SSH host key.");
+
+        const file = join(tempDir(), 'bad_key');
+        writeFileSync(file, short);
+        expect(() => hostKey(file)).toThrow(`The SSH host key in ${file} can't be read`);
     });
 
     test('SSH is off unless asked for', () => {
@@ -373,7 +436,7 @@ describe('limits and shutting down', () => {
         const server = start();
         const client = await telnet(server.telnetPort ?? 0);
         await newPlayer(client);
-        await client.sees('100/100');
+        await client.sees('HP 100/100');
         await server.stop();
         running = null;
         await client.sees('The server is shutting down. Your game was saved.');

@@ -184,6 +184,16 @@ export class Store {
         return state;
     }
 
+    // Every account's saved player (unchecked), with the account's name.
+    public allPlayers(): { name: string; player: unknown }[] {
+        const rows: unknown = this.db.query('SELECT a.name, p.state FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY a.name').all();
+        return (Array.isArray(rows) ? rows : []).map((row: unknown) => {
+            const r = record(row, 'player');
+            const state: unknown = JSON.parse(field(r, 'state', 'player', string));
+            return { name: field(r, 'name', 'player', string), player: state };
+        });
+    }
+
     public savePlayer(accountId: number, player: unknown): void {
         this.db
             .query('INSERT INTO players (account_id, state, saved_at) VALUES ($id, $state, $now) ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now')

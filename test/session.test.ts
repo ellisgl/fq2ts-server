@@ -37,7 +37,7 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
         content,
         items: itemCatalogue,
         config,
-        makeGame: (autosave) => {
+        makeGame: (_account, autosave) => {
             if (broken) {
                 throw new Error('The game is broken.');
             }
@@ -49,7 +49,7 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
 
             return game;
         },
-        claim,
+        claim: ({ id }) => claim(id),
         release: (id) => released.push(id),
         log: (line) => logs.push(line),
         mailer: {

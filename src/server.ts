@@ -20,6 +20,8 @@ import { field, integer, oneOf, record, string } from '@fq2js/engine/validate';
 import { RemoteIO } from './remote.ts';
 import { logMailer, type Mailer } from './mail.ts';
 import { Session } from './session.ts';
+import { Realm } from './realm.ts';
+import { rankings, whoIsOnline } from './lists.ts';
 import { listenSsh, type SshServer } from './ssh.ts';
 import { Store } from './store.ts';
 import { TELNET_GREETING, TelnetParser } from './telnet.ts';
@@ -152,7 +154,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
     };
     const connections = new Set<Connection<F>>();
     const connect = (send: (text: string) => void, hangUp: () => void): Connection<F> => new Connection<F>(send, hangUp, options.gameName);
-    const playing = new Set<number>();
+    const realm = new Realm<F>();
 
     // Starts the session for a new connection (once the terminal size is known).
     const begin = (connection: Connection<F>): void => {
@@ -185,18 +187,33 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
             content: shared.content,
             items: shared.items,
             config: shared.config,
-            makeGame: (autosave) =>
-                new Game({ term, world: shared.world, config: shared.config, monsters: shared.monsters, items: shared.items, content: shared.content, autosave, screensaver: false }),
-            claim: (id) => {
-                if (playing.has(id)) {
-                    return false;
-                }
-
-                playing.add(id);
-                return true;
+            makeGame: ({ id }, autosave) => {
+                const game = new Game({
+                    term,
+                    world: shared.world,
+                    config: shared.config,
+                    monsters: shared.monsters,
+                    items: shared.items,
+                    content: shared.content,
+                    autosave,
+                    screensaver: false,
+                    // Players share the world, so no cheating.
+                    cheats: false,
+                    figures: (screen) => realm.figures(id, screen),
+                    moved: (player) => {
+                        realm.moved(id, player);
+                    },
+                    keys: {
+                        P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
+                        L: { help: 'every player, ranked', run: rankings(realm, shared.store, shared.content.start, shared.items) },
+                    },
+                });
+                realm.attach(id, game);
+                return game;
             },
+            claim: ({ id, name }) => realm.claim(id, name),
             release: (id) => {
-                playing.delete(id);
+                realm.release(id);
             },
             log,
             mailer,
