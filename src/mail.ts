@@ -57,18 +57,29 @@ export function validEmail(email: string): boolean {
     return email.length <= MAX_EMAIL && EMAIL_PATTERN.test(email);
 }
 
-export type CodePurpose = 'confirm' | 'reset';
+export type CodePurpose = 'confirm' | 'change' | 'reset';
 
 export const GAME_NAME = 'Final Quest 2';
 
 // The email with a code in it.
 export function codeEmail(to: string, name: string, purpose: CodePurpose, code: string, minutes: number): Email {
-    const why = purpose === 'confirm'
-        ? `This confirms the email address of ${name}'s account.`
-        : `Someone (we hope you) asked to reset the password of ${name}'s account.`;
+    const why = {
+        confirm: `This confirms the email address of ${name}'s account.`,
+        change: `This confirms the new email address of ${name}'s account.`,
+        reset: `Someone (we hope you) asked to reset the password of ${name}'s account.`,
+    }[purpose];
     return {
         to,
         subject: `${GAME_NAME}: your code is ${code}`,
         text: `${why}\n\nYour code is ${code}. Type it into the game; it works for ${minutes} minutes.\n\nIf you didn't ask for this, you can ignore this email.\n`,
+    };
+}
+
+// Tells the old address that the account has moved to another.
+export function changedEmail(to: string, name: string): Email {
+    return {
+        to,
+        subject: `${GAME_NAME}: your email address was changed`,
+        text: `The email address of ${name}'s account was changed, so emails about it (password resets) now go to the new one.\n\nIf you didn't do this, someone else knows your password.\n`,
     };
 }

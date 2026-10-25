@@ -70,7 +70,7 @@ const NEW_PLAYER = pick(1);
 const FORGOT = pick(2);
 const LEAVE = 'escape';
 // From the map: Escape, then "Leave the realm".
-const LEAVE_THE_REALM = ['escape', ...pick(1)];
+const LEAVE_THE_REALM = ['escape', ...pick(2)];
 // A new game's opening: "A man", then past the scene.
 const OPENING = ['enter', 'x'];
 
@@ -218,7 +218,7 @@ describe('new players', () => {
                 },
                 ...typed('ecret1'),
                 ...typed('secret1'),
-                ...EMAIL,
+                ...typed('other@example.com'),
                 () => {
                     expect(row(t.screen, 25).trim()).toBe('Someone just took that name. Try another.');
                     return 'x';
@@ -404,6 +404,147 @@ describe('email addresses', () => {
         await run.run();
         expect(term.remaining).toBe(0);
         expect(sent).toHaveLength(MAX_EMAILS);
+    });
+});
+
+describe('one address, one account', () => {
+    test("a new player can't use an address another account has", async () => {
+        const store = new Store(':memory:');
+        account(store, 'Taken');
+        const { run, term } = session(
+            (t) => [
+                ...NEW_PLAYER,
+                ...typed('Hero'),
+                ...typed('secret1'),
+                ...typed('secret1'),
+                ...typed('TAKEN@example.com'),
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('That email address already has an account.');
+                    return 'x';
+                },
+                'escape',
+                LEAVE,
+            ],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')).toBeNull();
+        expect(sent).toEqual([]);
+    });
+
+    test('of two accounts waiting to confirm one address, the first to confirm it has it', async () => {
+        const store = new Store(':memory:');
+        const first = store.createAccount('First', 'hash:secret1', 'same@example.com')?.id ?? 0;
+        const { run, term } = session(
+            (t) => [
+                ...NEW_PLAYER,
+                ...typed('Hero'),
+                ...typed('secret1'),
+                ...typed('secret1'),
+                ...typed('same@example.com'),
+                () => {
+                    store.confirmEmail(first);
+                    return lastCode().charAt(0);
+                },
+                ...CODE.slice(1),
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('That email address already has an account.');
+                    return 'x';
+                },
+                LEAVE,
+            ],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')?.emailConfirmed).toBe(false);
+    });
+});
+
+describe('changing email address', () => {
+    // Logged in, past the opening, and on the menu from the map.
+    const CHANGE = [...LOG_IN, ...typed('hero'), ...typed('secret1'), ...OPENING, 'escape', ...pick(1)];
+
+    test('takes the password and a code sent to the new address; the old one is told', async () => {
+        const store = new Store(':memory:');
+        account(store);
+        const { run, logs, term } = session(
+            (t) => [
+                ...CHANGE,
+                ...typed('secret1'),
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('Now: hero@example.com');
+                    return 'n';
+                },
+                ...typed('ew@example.com'),
+                ...CODE,
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('Your email address is changed.');
+                    return 'x';
+                },
+                ...LEAVE_THE_REALM,
+                LEAVE,
+            ],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')).toMatchObject({ email: 'new@example.com', emailConfirmed: true });
+        expect(sent.map((e) => [e.to, e.subject.replace(/\d{6}/, 'N')])).toEqual([
+            ['new@example.com', 'Final Quest 2: your code is N'],
+            ['hero@example.com', 'Final Quest 2: your email address was changed'],
+        ]);
+        expect(sent[0]?.text).toContain("new email address of Hero's account");
+        expect(logs).toContain('Hero changed their email address.');
+    });
+
+    test('a wrong password changes nothing; three and the player is shown out', async () => {
+        const store = new Store(':memory:');
+        account(store);
+        const wrong = [...typed('nope123'), 'x', 'escape', ...pick(1)];
+        const { run, term } = session([...CHANGE, ...wrong, ...wrong, ...typed('nope123'), 'x'], { store });
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(row(term.screen, 25).trim()).toBe('Too many wrong passwords. Goodbye.');
+        expect(store.account('hero')?.email).toBe('hero@example.com');
+    });
+
+    test('Escape at the code keeps the old address', async () => {
+        const store = new Store(':memory:');
+        account(store);
+        const { run, term } = session([...CHANGE, ...typed('secret1'), ...typed('new@example.com'), 'escape', NOT_NOW, ...LEAVE_THE_REALM, LEAVE], { store });
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')).toMatchObject({ email: 'hero@example.com', emailConfirmed: true });
+    });
+
+    test('an address another account confirms meanwhile is turned down', async () => {
+        const store = new Store(':memory:');
+        account(store);
+        const other = store.createAccount('Other', 'h', 'new@example.com')?.id ?? 0;
+        const { run, term } = session(
+            (t) => [
+                ...CHANGE,
+                ...typed('secret1'),
+                ...typed('new@example.com'),
+                () => {
+                    store.confirmEmail(other);
+                    return lastCode().charAt(0);
+                },
+                ...CODE.slice(1),
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('That email address already has an account.');
+                    return 'x';
+                },
+                ...LEAVE_THE_REALM,
+                LEAVE,
+            ],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')?.email).toBe('hero@example.com');
     });
 });
 

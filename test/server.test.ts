@@ -152,7 +152,7 @@ describe('telnet', () => {
         first.send('\x1b[C');
         first.send('\x1b');
         await first.sees('Return');
-        first.send(`${DOWN}\r`);
+        first.send(`${DOWN}${DOWN}\r`);
         await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
         first.send('\x1b');
         await first.closed();

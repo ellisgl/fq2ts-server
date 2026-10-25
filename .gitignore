@@ -5,3 +5,5 @@ world.html
 server-data/
 .env
 .env.local
+.env.dev
+.env.test

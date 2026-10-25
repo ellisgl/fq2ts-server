@@ -58,6 +58,46 @@ describe('Store', () => {
     });
 });
 
+describe('one address, one account', () => {
+    test('a confirmed address is in use (in any case) for every other account', () => {
+        const store = new Store(':memory:');
+        const first = store.createAccount('First', 'h', 'same@example.com')?.id ?? 0;
+        const second = store.createAccount('Second', 'h', 'SAME@example.com')?.id ?? 0;
+        expect(store.emailInUse('same@example.com')).toBe(false);
+        expect(store.confirmEmail(first)).toBe(true);
+        expect(store.emailInUse('Same@Example.com')).toBe(true);
+        expect(store.emailInUse('same@example.com', first)).toBe(false);
+        expect(store.confirmEmail(second)).toBe(false);
+        expect(store.account('second')?.emailConfirmed).toBe(false);
+    });
+
+    test('changing to a new address, unless another account has it', () => {
+        const store = new Store(':memory:');
+        const id = store.createAccount('Hero', 'h', 'old@example.com')?.id ?? 0;
+        store.confirmEmail(id);
+        const other = store.createAccount('Other', 'h', 'taken@example.com')?.id ?? 0;
+        store.confirmEmail(other);
+        store.saveCode(id, 'change', 'code', 1);
+        expect(store.changeEmail(id, 'taken@example.com')).toBe(false);
+        expect(store.changeEmail(id, 'new@example.com')).toBe(true);
+        expect(store.account('hero')).toMatchObject({ email: 'new@example.com', emailConfirmed: true });
+        expect(store.codeSentAt(id, 'change')).toBeNull();
+    });
+
+    test('a database from before addresses were unique keeps the first account to confirm one', () => {
+        const path = join(tempDir(), 'shared.sqlite');
+        const old = new Database(path, { create: true });
+        old.run('CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, created_at TEXT NOT NULL, last_login TEXT, email TEXT, email_confirmed INTEGER NOT NULL DEFAULT 0)');
+        for (const name of ['One', 'Two', 'Three']) {
+            old.run("INSERT INTO accounts (name, password_hash, created_at, email, email_confirmed) VALUES (?, 'h', 'then', 'Shared@example.com', 1)", [name]);
+        }
+        old.close();
+        const store = new Store(path);
+        expect(['one', 'two', 'three'].map((name) => store.account(name)?.emailConfirmed)).toEqual([true, false, false]);
+        store.close();
+    });
+});
+
 describe('codes', () => {
     const MINUTE = 60_000;
 

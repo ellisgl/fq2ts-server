@@ -2,8 +2,9 @@
 // until they leave or the connection goes.
 //
 // Every account has an email address, confirmed with a code sent to it
-// before the account can play; a forgotten password is reset with another
-// code.
+// before the account can play, and one address has one account. A
+// forgotten password is reset with another code; changing the address
+// takes the password, then a code sent to the new one.
 
 import { draw, escapeMarkup } from '../engine/text.ts';
 import { askText, choose } from '../engine/ui.ts';
@@ -11,7 +12,7 @@ import { Disconnected, type Terminal } from '../engine/terminal.ts';
 import { restorePlayer, type FlagRecord, type Player } from '../engine/player.ts';
 import type { ItemCatalogue } from '../engine/items.ts';
 import type { Config, Content, Game } from '../engine/game.ts';
-import { codeEmail, MAX_EMAIL, validEmail, type CodePurpose, type Mailer } from './mail.ts';
+import { changedEmail, codeEmail, MAX_EMAIL, validEmail, type CodePurpose, type Mailer } from './mail.ts';
 import { CODE_MINUTES, validName, type Account, type Store } from './store.ts';
 
 // Wrong passwords before the connection is closed.
@@ -132,14 +133,27 @@ export class Session<F extends FlagRecord> {
         }
 
         const account = this.options.store.account(name.trim());
-        const verify = this.options.verifyPassword ?? ((p: string, h: string) => Bun.password.verify(p, h));
-        if (!account || !(await verify(password, account.passwordHash))) {
+        if (!account) {
             this.wrongPasswords++;
+        }
+
+        if (!account || !(await this.verify(password, account))) {
             await this.pause('{lightred}Wrong name or password.');
             return null;
         }
 
         return account.emailConfirmed || (await this.confirmEmail(account)) ? account : null;
+    }
+
+    // Whether this is the account's password (counting wrong ones).
+    private async verify(password: string, account: Account): Promise<boolean> {
+        const verify = this.options.verifyPassword ?? ((p: string, h: string) => Bun.password.verify(p, h));
+        if (await verify(password, account.passwordHash)) {
+            return true;
+        }
+
+        this.wrongPasswords++;
+        return false;
     }
 
     private async signUp(): Promise<Account | null> {
@@ -211,8 +225,8 @@ export class Session<F extends FlagRecord> {
 
     // ---- Email
 
-    // An email address; null on Escape.
-    private async askEmail(note = '{white}For your code, and password resets.'): Promise<string | null> {
+    // An email address no other account has; null on Escape.
+    private async askEmail(accountId = 0, note = '{white}For your code, and password resets.'): Promise<string | null> {
         for (;;) {
             const answer = await this.ask('Email:', { max: MAX_EMAIL, note });
             if (answer === null) {
@@ -220,23 +234,23 @@ export class Session<F extends FlagRecord> {
             }
 
             const email = answer.trim();
-            if (validEmail(email)) {
+            if (!validEmail(email)) {
+                await this.pause("{yellow}That doesn't look like an email address.");
+            } else if (this.options.store.emailInUse(email, accountId)) {
+                await this.pause('{yellow}That email address already has an account.');
+            } else {
                 return email;
             }
-
-            await this.pause("{yellow}That doesn't look like an email address.");
         }
     }
 
-    // Has the player type the code sent to their address (sending one if
-    // need be); false if they leave it for now. They can ask for another,
-    // or change the address.
+    // Has the player confirm their address (adding one if their account is
+    // from before there were any); false if they leave it for now.
     private async confirmEmail(account: Account): Promise<boolean> {
         const { store } = this.options;
         let { email } = account;
         if (email === null) {
-            // An account from before there were email addresses.
-            email = await this.askEmail('{yellow}Your account needs an email address now.');
+            email = await this.askEmail(account.id, '{yellow}Your account needs an email address now.');
             if (email === null) {
                 return false;
             }
@@ -246,29 +260,96 @@ export class Session<F extends FlagRecord> {
 
         // A code sent before (on an earlier visit) may still work.
         const sent = store.codeSentAt(account.id, 'confirm');
-        let send = sent === null || this.now() - sent > CODE_MINUTES * 60_000;
+        const send = sent === null || this.now() - sent > CODE_MINUTES * 60_000;
+        const confirmed = await this.typeCode(account, email, 'confirm', send);
+        if (confirmed === null) {
+            return false;
+        }
+
+        if (!store.confirmEmail(account.id)) {
+            // Another account confirmed it while this one was waiting.
+            await this.pause('{yellow}That email address already has an account.');
+            return false;
+        }
+
+        this.options.log(`${account.name} confirmed their email address.`);
+        return true;
+    }
+
+    // A new address for a playing account: their password, the address, and
+    // the code sent to it. The old address is told.
+    private async changeEmail(account: Account): Promise<void> {
+        const { store, mailer, log } = this.options;
+        const password = await this.ask('Password:', { mask: true, note: '{white}To change your email address.' });
+        if (password === null) {
+            return;
+        }
+
+        if (!(await this.verify(password, account))) {
+            await this.pause('{lightred}Wrong password.');
+            return;
+        }
+
+        const old = store.account(account.name)?.email ?? null;
+        const email = await this.askEmail(account.id, `{white}Now: ${escapeMarkup(old ?? 'none')}`);
+        if (email === null) {
+            return;
+        }
+
+        store.deleteCode(account.id, 'change');
+        const confirmed = await this.typeCode(account, email, 'change', true);
+        if (confirmed === null) {
+            return;
+        }
+
+        if (!store.changeEmail(account.id, confirmed)) {
+            await this.pause('{yellow}That email address already has an account.');
+            return;
+        }
+
+        log(`${account.name} changed their email address.`);
+        if (old !== null && old.toLowerCase() !== confirmed.toLowerCase()) {
+            // Not one of the emails the player asked for, and not worth
+            // stopping for if it can't be sent.
+            mailer.send(changedEmail(old, account.name)).catch((error: unknown) => {
+                log(`Couldn't email ${account.name}: ${error instanceof Error ? error.message : String(error)}`);
+            });
+        }
+
+        await this.pause('{lightgreen}Your email address is changed.');
+    }
+
+    // Has the player type the code sent to this address (sending it first,
+    // if `send`); the address once they have (which they may have changed
+    // on the way), or null if they leave it for now.
+    private async typeCode(account: Account, address: string, purpose: 'confirm' | 'change', send: boolean): Promise<string | null> {
+        const { store } = this.options;
+        let email = address;
+        let sendNow = send;
         for (;;) {
-            if (!send || (await this.sendCode(account, email, 'confirm'))) {
-                if (await this.enterCode(account.id, 'confirm', email)) {
-                    store.confirmEmail(account.id);
-                    this.options.log(`${account.name} confirmed their email address.`);
-                    return true;
+            if (!sendNow || (await this.sendCode(account, email, purpose))) {
+                if (await this.enterCode(account.id, purpose, email)) {
+                    return email;
                 }
             }
 
-            send = false;
+            sendNow = false;
             const choice = await this.menu(['Type the code', 'Send a new code', 'Change email', 'Not now']);
             if (choice === 1) {
-                send = true;
+                sendNow = true;
             } else if (choice === 2) {
-                const changed = await this.askEmail();
+                const changed = await this.askEmail(account.id);
                 if (changed !== null) {
                     email = changed;
-                    store.setEmail(account.id, email);
-                    send = true;
+                    if (purpose === 'confirm') {
+                        store.setEmail(account.id, email);
+                    } else {
+                        store.deleteCode(account.id, 'change');
+                    }
+                    sendNow = true;
                 }
             } else if (choice === 3) {
-                return false;
+                return null;
             }
         }
     }
@@ -387,8 +468,18 @@ export class Session<F extends FlagRecord> {
                 await game.resume(player);
             }
 
-            // Escape from the map: carry on, or leave.
-            while ((await this.menu(['Return to the game', 'Leave the realm'])) === 0) {
+            // Escape from the map: carry on, change email, or leave.
+            for (;;) {
+                const choice = await this.menu(['Return to the game', 'Change email', 'Leave the realm']);
+                if (choice === 1) {
+                    await this.changeEmail(account);
+                }
+
+                // Too many wrong passwords, and the front door says goodbye.
+                if (choice === 2 || this.wrongPasswords >= MAX_TRIES) {
+                    break;
+                }
+
                 await game.resume(game.playing, { arrive: false });
             }
         } finally {

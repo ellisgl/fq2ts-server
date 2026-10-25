@@ -2,7 +2,9 @@
 //
 // An account is a name, a password hash and an email address (for
 // resetting the password, once it's been confirmed); the name is also the
-// player's name in the game. A player is saved as JSON (the same shape as
+// player's name in the game. A confirmed address belongs to one account
+// only. (Unconfirmed ones can be shared, so no one can hold on to someone
+// else's address by signing up with it and never confirming it.) A player is saved as JSON (the same shape as
 // a save slot's state), and checked with restorePlayer when it's loaded.
 
 import { Database } from 'bun:sqlite';
@@ -70,6 +72,17 @@ export class Store {
             this.db.run('ALTER TABLE accounts ADD COLUMN email TEXT');
             this.db.run('ALTER TABLE accounts ADD COLUMN email_confirmed INTEGER NOT NULL DEFAULT 0');
         }
+
+        if (this.db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'accounts_email'").get() === null) {
+            // Databases from before addresses were unique: the first account
+            // to have confirmed one keeps it.
+            this.db.run(`
+                UPDATE accounts SET email_confirmed = 0 WHERE email_confirmed = 1 AND id NOT IN (
+                    SELECT MIN(id) FROM accounts WHERE email_confirmed = 1 GROUP BY email COLLATE NOCASE
+                )
+            `);
+            this.db.run('CREATE UNIQUE INDEX accounts_email ON accounts (email COLLATE NOCASE) WHERE email_confirmed = 1');
+        }
     }
 
     public close(): void {
@@ -109,11 +122,37 @@ export class Store {
     // won't do).
     public setEmail(accountId: number, email: string): void {
         this.db.query('UPDATE accounts SET email = $email, email_confirmed = 0 WHERE id = $id').run({ id: accountId, email });
-        this.db.query("DELETE FROM codes WHERE account_id = $id AND purpose = 'confirm'").run({ id: accountId });
+        this.deleteCode(accountId, 'confirm');
     }
 
-    public confirmEmail(accountId: number): void {
+    // Whether another account has confirmed this address (in any case).
+    public emailInUse(email: string, exceptAccountId = 0): boolean {
+        return this.db.query('SELECT 1 FROM accounts WHERE email = $email COLLATE NOCASE AND email_confirmed = 1 AND id != $id').get({ email, id: exceptAccountId }) !== null;
+    }
+
+    // Confirms the account's address; false if another account confirmed
+    // it first.
+    public confirmEmail(accountId: number): boolean {
+        const account: unknown = this.db.query('SELECT email FROM accounts WHERE id = $id').get({ id: accountId });
+        const email = account === null ? null : record(account, 'account')['email'];
+        if (typeof email !== 'string' || this.emailInUse(email, accountId)) {
+            return false;
+        }
+
         this.db.query('UPDATE accounts SET email_confirmed = 1 WHERE id = $id').run({ id: accountId });
+        return true;
+    }
+
+    // Swaps a confirmed address for another, already confirmed (by a
+    // code sent to it); false if another account has it.
+    public changeEmail(accountId: number, email: string): boolean {
+        if (this.emailInUse(email, accountId)) {
+            return false;
+        }
+
+        this.db.query('UPDATE accounts SET email = $email, email_confirmed = 1 WHERE id = $id').run({ id: accountId, email });
+        this.deleteCode(accountId, 'change');
+        return true;
     }
 
     public setPassword(accountId: number, passwordHash: string): void {
@@ -127,6 +166,10 @@ export class Store {
         this.db
             .query('INSERT INTO codes (account_id, purpose, code_hash, sent_at) VALUES ($id, $purpose, $hash, $at) ON CONFLICT(account_id, purpose) DO UPDATE SET code_hash = $hash, sent_at = $at, tries = 0')
             .run({ id: accountId, purpose, hash: codeHash, at: sentAt });
+    }
+
+    public deleteCode(accountId: number, purpose: CodePurpose): void {
+        this.db.query('DELETE FROM codes WHERE account_id = $id AND purpose = $purpose').run({ id: accountId, purpose });
     }
 
     // When the last code for this was sent, if it's still there.
@@ -147,12 +190,12 @@ export class Store {
         const r = record(row, 'code');
         const expired = at - field(r, 'sent_at', 'code', integer) > CODE_MINUTES * 60_000;
         if (expired || field(r, 'tries', 'code', integer) >= CODE_TRIES) {
-            this.db.query('DELETE FROM codes WHERE account_id = $id AND purpose = $purpose').run(key);
+            this.deleteCode(accountId, purpose);
             return 'none';
         }
 
         if (field(r, 'code_hash', 'code', string) === codeHash) {
-            this.db.query('DELETE FROM codes WHERE account_id = $id AND purpose = $purpose').run(key);
+            this.deleteCode(accountId, purpose);
             return 'right';
         }
 
