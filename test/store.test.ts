@@ -88,6 +88,7 @@ describe('one address, one account', () => {
         const path = join(tempDir(), 'shared.sqlite');
         const old = new Database(path, { create: true });
         old.run('CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, created_at TEXT NOT NULL, last_login TEXT, email TEXT, email_confirmed INTEGER NOT NULL DEFAULT 0)');
+        old.run('CREATE TABLE codes (account_id INTEGER NOT NULL, purpose TEXT NOT NULL, code_hash TEXT NOT NULL, sent_at INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (account_id, purpose))');
         for (const name of ['One', 'Two', 'Three']) {
             old.run("INSERT INTO accounts (name, password_hash, created_at, email, email_confirmed) VALUES (?, 'h', 'then', 'Shared@example.com', 1)", [name]);
         }

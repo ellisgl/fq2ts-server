@@ -4,12 +4,15 @@
 // resetting the password, once it's been confirmed); the name is also the
 // player's name in the game. A confirmed address belongs to one account
 // only. (Unconfirmed ones can be shared, so no one can hold on to someone
-// else's address by signing up with it and never confirming it.) A player is saved as JSON (the same shape as
-// a save slot's state), and checked with restorePlayer when it's loaded.
+// else's address by signing up with it and never confirming it.)
+//
+// A player is saved as JSON (the same shape as a save slot's state), and
+// checked with restorePlayer when it's loaded.
 
 import { Database } from 'bun:sqlite';
 import { field, integer, oneOf, record, string } from '../engine/validate.ts';
 import type { CodePurpose } from './mail.ts';
+import { migrate } from './migrations.ts';
 
 export interface Account {
     id: number;
@@ -37,51 +40,14 @@ export function validName(name: string): boolean {
 export class Store {
     private readonly db: Database;
 
-    // `path` is a file, or ':memory:' for a database that's thrown away.
-    public constructor(path: string) {
+    // `path` is a file, or ':memory:' for a database that's thrown away. The
+    // database is brought up to date (see migrations.ts), and each step
+    // taken is logged.
+    public constructor(path: string, { log = () => undefined }: { log?(line: string): void } = {}) {
         this.db = new Database(path, { create: true, strict: true });
         this.db.run('PRAGMA journal_mode = WAL');
-        this.db.run(`
-            CREATE TABLE IF NOT EXISTS accounts (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                last_login TEXT,
-                email TEXT,
-                email_confirmed INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS players (
-                account_id INTEGER PRIMARY KEY REFERENCES accounts(id),
-                state TEXT NOT NULL,
-                saved_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS codes (
-                account_id INTEGER NOT NULL REFERENCES accounts(id),
-                purpose TEXT NOT NULL,
-                code_hash TEXT NOT NULL,
-                sent_at INTEGER NOT NULL,
-                tries INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (account_id, purpose)
-            );
-        `);
-        // Databases from before email addresses.
-        const columns: unknown = this.db.query('SELECT name FROM pragma_table_info(\'accounts\')').all();
-        const names = Array.isArray(columns) ? columns.map((c) => field(record(c, 'column'), 'name', 'column', string)) : [];
-        if (!names.includes('email')) {
-            this.db.run('ALTER TABLE accounts ADD COLUMN email TEXT');
-            this.db.run('ALTER TABLE accounts ADD COLUMN email_confirmed INTEGER NOT NULL DEFAULT 0');
-        }
-
-        if (this.db.query("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'accounts_email'").get() === null) {
-            // Databases from before addresses were unique: the first account
-            // to have confirmed one keeps it.
-            this.db.run(`
-                UPDATE accounts SET email_confirmed = 0 WHERE email_confirmed = 1 AND id NOT IN (
-                    SELECT MIN(id) FROM accounts WHERE email_confirmed = 1 GROUP BY email COLLATE NOCASE
-                )
-            `);
-            this.db.run('CREATE UNIQUE INDEX accounts_email ON accounts (email COLLATE NOCASE) WHERE email_confirmed = 1');
+        for (const step of migrate(this.db)) {
+            log(`Database: ${step}`);
         }
     }
 

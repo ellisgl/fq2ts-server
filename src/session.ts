@@ -89,7 +89,8 @@ export class Session<F extends FlagRecord> {
     // Saves the player being played, if any (on disconnects, errors and
     // server shutdown).
     public save(): void {
-        if (this.playing) {
+        // (A game that failed before it began has no player.)
+        if (this.playing?.game.inProgress) {
             this.options.store.savePlayer(this.playing.account.id, this.playing.game.playing);
         }
     }

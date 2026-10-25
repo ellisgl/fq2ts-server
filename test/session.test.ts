@@ -16,6 +16,8 @@ interface Setup {
     store?: Store;
     claim?(id: number): boolean;
     broken?: boolean;
+    // The game is made, but fails as it begins.
+    brokenStart?: boolean;
     mailFails?: boolean;
 }
 
@@ -23,7 +25,7 @@ interface Setup {
 let sent: Email[] = [];
 let clock = 0;
 
-function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, mailFails = false }: Setup = {}) {
+function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false }: Setup = {}) {
     const term = new FakeTerminal();
     const logs: string[] = [];
     const released: number[] = [];
@@ -40,7 +42,12 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
                 throw new Error('The game is broken.');
             }
 
-            return new Game({ term, world: gameWorld(), config, monsters: bestiary, items: itemCatalogue, content, autosave, screensaver: false });
+            const game = new Game({ term, world: gameWorld(), config, monsters: bestiary, items: itemCatalogue, content, autosave, screensaver: false });
+            if (brokenStart) {
+                game.begin = () => Promise.reject(new Error('The game broke as it began.'));
+            }
+
+            return game;
         },
         claim,
         release: (id) => released.push(id),
@@ -709,6 +716,16 @@ describe('when things go wrong', () => {
         await run.run();
         expect(logs.some((line) => line.startsWith('Session error: Error: The game is broken.'))).toBe(true);
         expect(row(term.screen, 25).trim()).toBe('Something went wrong. Sorry! Your game was saved.');
+        expect(released).toEqual([id]);
+    });
+
+    test("an error before the game has a player is still the one logged (there's nothing to save)", async () => {
+        const store = new Store(':memory:');
+        const id = account(store);
+        const { run, logs, released } = session([...LOG_IN, ...typed('hero'), ...typed('secret1')], { store, brokenStart: true });
+        await run.run();
+        expect(logs.some((line) => line.startsWith('Session error: Error: The game broke as it began.'))).toBe(true);
+        expect(store.loadPlayer(id)).toBeNull();
         expect(released).toEqual([id]);
     });
 

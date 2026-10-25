@@ -140,7 +140,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
         monsters: readBestiary(readJson('monsters.json')),
         items: readItems(readJson('items.json')),
         content,
-        store: new Store(options.database),
+        store: new Store(options.database, { log }),
     };
     const connections = new Set<Connection<F>>();
     const playing = new Set<number>();
