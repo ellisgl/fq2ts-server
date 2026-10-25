@@ -5,14 +5,12 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client as SshClient } from 'ssh2';
-import { startServer, type RunningServer, type ServerOptions } from '@fq2js/server/server';
-import { TELNET, TELNET_GREETING } from '@fq2js/server/telnet';
-import content from '../../content/index.ts';
-import type { Flags } from '../../content/start.ts';
-import { tempDir } from '../helpers.ts';
+import { startServer, type RunningServer, type ServerOptions } from '../src/server.ts';
+import { TELNET, TELNET_GREETING } from '../src/telnet.ts';
+import { tempDir } from '@fq2js/engine/testing';
+import { content, FIXTURE_DATA, type TestFlags } from '@fq2js/engine/fixture';
 
 const { IAC, SB, SE, NAWS } = TELNET;
-const DATA = join(import.meta.dir, '..', '..', 'data');
 const DOWN = '\x1b[B';
 
 let running: RunningServer | null = null;
@@ -23,11 +21,11 @@ afterEach(async () => {
     running = null;
 });
 
-function start(options: Partial<ServerOptions<Flags>> = {}): RunningServer {
+function start(options: Partial<ServerOptions<TestFlags>> = {}): RunningServer {
     logs = [];
     running = startServer({
         content,
-        dataDir: DATA,
+        dataDir: FIXTURE_DATA,
         database: ':memory:',
         telnetPort: 0,
         webPort: 0,
@@ -158,6 +156,10 @@ async function ssh(port: number, { size = [80, 25] as [number, number], user = '
     };
 }
 
+// (The screen is sent as changes, so text on it can arrive with the spaces
+// that were already there left out: tests look for words without spaces,
+// like the status line's "100/100".)
+
 // Makes an account and plays into a new game, from the login menu.
 async function newPlayer(client: Client, name = 'Hero'): Promise<void> {
     await client.sees('Log');
@@ -170,9 +172,7 @@ async function newPlayer(client: Client, name = 'Hero'): Promise<void> {
     await until('the code to be emailed', () => logs.some((line) => line.includes('your code is')));
     const code = /your code is (\d+)/.exec(logs.find((line) => line.includes('your code is')) ?? '')?.[1] ?? '';
     client.send(`${code}\r`);
-    await client.sees('And');
-    client.send('\r');
-    await client.sees('wake');
+    await client.sees('A NEW GAME BEGINS');
     client.send(' ');
 }
 
@@ -190,7 +190,7 @@ describe('telnet', () => {
         const port = server.telnetPort ?? 0;
         const first = await telnet(port);
         await newPlayer(first);
-        await first.sees('House');
+        await first.sees('100/100');
         first.send('\x1b[C');
         first.send('\x1b');
         await first.sees('Return');
@@ -204,7 +204,7 @@ describe('telnet', () => {
         again.send('\r');
         await again.sees('Name:');
         again.send('hero\rsecret1\r');
-        await again.sees('House');
+        await again.sees('100/100');
         expect(logs.filter((line) => line === 'Hero enters the realm.')).toHaveLength(2);
     });
 
@@ -225,7 +225,7 @@ describe('telnet', () => {
         const server = start();
         const client = await telnet(server.telnetPort ?? 0);
         await newPlayer(client);
-        await client.sees('House');
+        await client.sees('100/100');
         client.send('\x03');
         await client.closed();
         await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
@@ -237,7 +237,7 @@ describe('telnet', () => {
         const port = server.telnetPort ?? 0;
         const first = await telnet(port);
         await newPlayer(first);
-        await first.sees('House');
+        await first.sees('100/100');
         const second = await telnet(port);
         await second.sees('Log');
         second.send('\r');
@@ -263,7 +263,7 @@ describe('the web', () => {
         const client = await browser(server.webPort ?? 0);
         client.ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 25 }));
         await newPlayer(client);
-        await client.sees('House');
+        await client.sees('100/100');
     });
 
     test('a browser that never says its size starts anyway (at 80x25)', async () => {
@@ -296,7 +296,7 @@ describe('SSH', () => {
         const server = withSsh();
         const client = await ssh(server.sshPort ?? 0, { user: 'whoever' });
         await newPlayer(client);
-        await client.sees('House');
+        await client.sees('100/100');
         client.send('\x03');
         await client.closed();
         await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
@@ -361,7 +361,7 @@ describe('limits and shutting down', () => {
         const server = start();
         const client = await telnet(server.telnetPort ?? 0);
         await newPlayer(client);
-        await client.sees('House');
+        await client.sees('100/100');
         await server.stop();
         running = null;
         await client.sees('The server is shutting down. Your game was saved.');

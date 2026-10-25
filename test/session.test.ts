@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
-import { MAX_EMAILS, RESEND_WAIT, Session } from '@fq2js/server/session';
-import { Store } from '@fq2js/server/store';
-import type { Email } from '@fq2js/server/mail';
+import { MAX_EMAILS, RESEND_WAIT, Session } from '../src/session.ts';
+import { Store } from '../src/store.ts';
+import type { Email } from '../src/mail.ts';
 import { Game } from '@fq2js/engine/game';
-import content from '../../content/index.ts';
-import { bestiary, config, FakeTerminal, gameWorld, itemCatalogue, newPlayer, pick, row, screenText, tempDir, typed, type Step } from '../helpers.ts';
+import { FakeTerminal, pick, row, screenText, tempDir, typed, type Step } from '@fq2js/engine/testing';
+import { bestiary, config, content, itemCatalogue, newPlayer, testWorld } from '@fq2js/engine/fixture';
 
 // Quick stand-ins for argon2 (the real thing takes a moment per call).
 const hashPassword = (password: string): Promise<string> => Promise.resolve(`hash:${password}`);
@@ -42,7 +42,7 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
                 throw new Error('The game is broken.');
             }
 
-            const game = new Game({ term, world: gameWorld(), config, monsters: bestiary, items: itemCatalogue, content, autosave, screensaver: false });
+            const game = new Game({ term, world: testWorld(), config, monsters: bestiary, items: itemCatalogue, content, autosave, screensaver: false });
             if (brokenStart) {
                 game.begin = () => Promise.reject(new Error('The game broke as it began.'));
             }
@@ -78,8 +78,8 @@ const FORGOT = pick(2);
 const LEAVE = 'escape';
 // From the map: Escape, then "Leave the realm".
 const LEAVE_THE_REALM = ['escape', ...pick(2)];
-// A new game's opening: "A man", then past the scene.
-const OPENING = ['enter', 'x'];
+// A new game's opening (Test Quest's: one screen, then a key).
+const OPENING = ['x'];
 
 // The code in the last email, typed in (read when it's typed, as it's only
 // sent part way through a test).
@@ -102,7 +102,7 @@ describe('the front door', () => {
     test('shows the title screen with its menu in the box', async () => {
         const { run, term } = session((t) => [
             () => {
-                expect(screenText(t.screen)).toContain('V0.94 Rev D');
+                expect(screenText(t.screen)).toContain('V1.0 Rev A');
                 expect(row(t.screen, 17)).toContain('Log in');
                 expect(row(t.screen, 18)).toContain('New player');
                 expect(row(t.screen, 19)).toContain('Forgot password');
@@ -131,12 +131,9 @@ describe('new players', () => {
             },
             ...CODE.slice(1),
             () => {
-                // The game knows the name already, so it only asks the sex.
-                expect(screenText(t.screen)).not.toContain('What is your name');
-                expect(row(t.screen, 6)).toBe('And are you...');
-                return 'enter';
+                expect(row(t.screen, 1)).toBe('A NEW GAME BEGINS');
+                return 'x';
             },
-            'x',
             'right',
             ...LEAVE_THE_REALM,
             LEAVE,
@@ -144,7 +141,7 @@ describe('new players', () => {
         await run.run();
         expect(term.remaining).toBe(0);
         expect(store.account('hero')).toMatchObject({ passwordHash: 'hash:secret1', email: 'hero@example.com', emailConfirmed: true });
-        expect(store.loadPlayer(1)).toMatchObject({ name: 'Hero', screen: 721, x: 34, weapon: 'stick' });
+        expect(store.loadPlayer(1)).toMatchObject({ name: 'Hero', screen: 1, x: 11, y: 10 });
         expect(logs).toEqual(['New account: Hero', 'Hero confirmed their email address.', 'Hero enters the realm.', 'Hero leaves the realm.']);
         expect(sent).toHaveLength(1);
         expect(sent[0]).toMatchObject({ to: 'hero@example.com' });
@@ -349,10 +346,9 @@ describe('email addresses', () => {
                 ...EMAIL,
                 ...CODE,
                 () => {
-                    expect(screenText(t.screen)).toContain('And are you');
-                    return 'enter';
+                    expect(row(t.screen, 1)).toBe('A NEW GAME BEGINS');
+                    return 'x';
                 },
-                'x',
                 ...LEAVE_THE_REALM,
                 LEAVE,
             ],
@@ -698,14 +694,16 @@ describe('when things go wrong', () => {
                 ...OPENING,
                 'right',
                 () => {
+                    // (This key still arrives; the next read finds the
+                    // connection gone.)
                     t.disconnect();
-                    return 'right';
+                    return 'x';
                 },
             ],
             { store },
         );
         await run.run();
-        expect(store.loadPlayer(id)).toMatchObject({ x: 35 });
+        expect(store.loadPlayer(id)).toMatchObject({ x: 11 });
         expect(released).toEqual([id]);
     });
 
