@@ -218,6 +218,12 @@ describe('the web', () => {
         await client.sees('House');
     });
 
+    test('a browser that never says its size starts anyway (at 80x25)', async () => {
+        const server = start();
+        const client = await browser(server.webPort ?? 0);
+        await client.sees('Log');
+    });
+
     test('bad messages are logged and ignored', async () => {
         const server = start();
         const client = await browser(server.webPort ?? 0);

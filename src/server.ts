@@ -54,6 +54,10 @@ const WINDOW_SIZE_WAIT = 500;
 const IDLE_CHECK = 30_000;
 // The largest web socket message accepted.
 const MAX_MESSAGE = 4096;
+// The most output kept waiting for a player whose connection isn't taking
+// it (dozens of full screens). Past this, they've stopped reading, and the
+// connection is closed rather than letting it build up.
+const MAX_PENDING = 1024 * 1024;
 
 const PAGE = readFileSync(join(import.meta.dir, 'client.html'), 'utf8');
 
@@ -132,6 +136,10 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
     // Starts the session for a new connection (once the terminal size is known).
     const begin = (connection: Connection<F>): void => {
         const { term } = connection;
+        if (connection.isClosed || connection.session) {
+            return;
+        }
+
         if (connections.size > maxPlayers) {
             connection.say('The realm is full. Please try again later.');
             connection.close();
@@ -188,7 +196,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
 
     let telnet: TCPSocketListener<undefined> | null = null;
     if (telnetPort !== null) {
-        const bySocket = new WeakMap<Socket, { connection: Connection<F>; parser: TelnetParser; started: boolean; pending: Uint8Array[] }>();
+        const bySocket = new WeakMap<Socket, { connection: Connection<F>; parser: TelnetParser; started: boolean; pending: Uint8Array[]; pendingBytes: number }>();
         const encoder = new TextEncoder();
         const write = (socket: Socket, bytes: Uint8Array): void => {
             const state = bySocket.get(socket);
@@ -197,18 +205,29 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
             }
 
             if (state.pending.length) {
+                if (state.pendingBytes + bytes.length > MAX_PENDING) {
+                    log('Telnet: a player stopped reading; closing their connection.');
+                    state.pending = [];
+                    state.pendingBytes = 0;
+                    state.connection.close();
+                    return;
+                }
+
                 state.pending.push(bytes);
+                state.pendingBytes += bytes.length;
                 return;
             }
 
             const written = socket.write(bytes);
             if (written < bytes.length) {
-                state.pending.push(bytes.subarray(Math.max(0, written)));
+                const rest = bytes.subarray(Math.max(0, written));
+                state.pending.push(rest);
+                state.pendingBytes += rest.length;
             }
         };
         const start = (socket: Socket): void => {
             const state = bySocket.get(socket);
-            if (state && !state.started) {
+            if (state && !state.started && !state.connection.isClosed) {
                 state.started = true;
                 begin(state.connection);
             }
@@ -227,7 +246,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
                             socket.end();
                         },
                     );
-                    bySocket.set(socket, { connection, parser: new TelnetParser(), started: false, pending: [] });
+                    bySocket.set(socket, { connection, parser: new TelnetParser(), started: false, pending: [], pendingBytes: 0 });
                     connections.add(connection);
                     socket.write(TELNET_GREETING);
                     setTimeout(() => {
@@ -258,9 +277,10 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
                             break;
                         }
 
-                        const written = socket.write(first);
+                        const written = Math.max(0, socket.write(first));
+                        state.pendingBytes -= Math.min(written, first.length);
                         if (written < first.length) {
-                            state.pending[0] = first.subarray(Math.max(0, written));
+                            state.pending[0] = first.subarray(written);
                             return;
                         }
 
@@ -309,6 +329,9 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
             },
             websocket: {
                 maxPayloadLength: MAX_MESSAGE,
+                // A browser that stops reading is disconnected, as on telnet.
+                backpressureLimit: MAX_PENDING,
+                closeOnBackpressureLimit: true,
                 open: (ws: ServerWebSocket<WebData>) => {
                     const connection = new Connection<F>(
                         (text) => {
@@ -320,6 +343,11 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
                     );
                     ws.data.connection = connection;
                     connections.add(connection);
+                    // The page says its size straight away; if it doesn't,
+                    // start anyway (at 80x25), as telnet does.
+                    setTimeout(() => {
+                        begin(connection);
+                    }, WINDOW_SIZE_WAIT);
                 },
                 message: (ws: ServerWebSocket<WebData>, message) => {
                     const { connection } = ws.data;
@@ -333,9 +361,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
                             connection.io.typed(field(r, 'data', 'message', string));
                         } else {
                             connection.io.resized(field(r, 'cols', 'message', integer), field(r, 'rows', 'message', integer));
-                            if (!connection.session) {
-                                begin(connection);
-                            }
+                            begin(connection);
                         }
                     } catch (error) {
                         log(`Bad web message: ${error instanceof Error ? error.message : String(error)}`);
