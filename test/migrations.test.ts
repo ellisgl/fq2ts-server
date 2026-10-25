@@ -13,7 +13,7 @@ describe('migrate', () => {
         const db = new Database(':memory:');
         expect(migrate(db)).toEqual(MIGRATIONS.map((m) => m.description));
         expect(version(db)).toEqual({ user_version: MIGRATIONS.length });
-        expect(tables(db)).toEqual([{ name: 'accounts' }, { name: 'accounts_email' }, { name: 'codes' }, { name: 'players' }]);
+        expect(tables(db)).toEqual(['accounts', 'accounts_email', 'codes', 'letters', 'letters_account', 'news', 'news_at', 'players'].map((name) => ({ name })));
         expect(migrate(db)).toEqual([]);
     });
 
@@ -70,7 +70,7 @@ describe('databases from before there were steps', () => {
     test.each([
         ['the first server', [ACCOUNTS, PLAYERS], MIGRATIONS.slice(1)],
         ['email addresses', [ACCOUNTS, PLAYERS, ...EMAIL], MIGRATIONS.slice(2)],
-        ['unique addresses', [ACCOUNTS, PLAYERS, ...EMAIL, UNIQUE], []],
+        ['unique addresses', [ACCOUNTS, PLAYERS, ...EMAIL, UNIQUE], MIGRATIONS.slice(3)],
     ])('from %s: get the steps after', (_, sql, wanted) => {
         const db = new Database(':memory:');
         for (const statement of sql) {

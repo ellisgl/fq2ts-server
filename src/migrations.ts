@@ -64,6 +64,28 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: 'Letters between players, and the news',
+        up: (db) => {
+            db.run(`
+                CREATE TABLE letters (
+                    id INTEGER PRIMARY KEY,
+                    account_id INTEGER NOT NULL REFERENCES accounts(id),
+                    sender TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    sent_at INTEGER NOT NULL,
+                    read INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX letters_account ON letters (account_id, sent_at);
+                CREATE TABLE news (
+                    id INTEGER PRIMARY KEY,
+                    text TEXT NOT NULL,
+                    at INTEGER NOT NULL
+                );
+                CREATE INDEX news_at ON news (at);
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

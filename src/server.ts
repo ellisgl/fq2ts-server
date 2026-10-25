@@ -22,6 +22,8 @@ import { logMailer, type Mailer } from './mail.ts';
 import { Session } from './session.ts';
 import { Realm } from './realm.ts';
 import { rankings, whoIsOnline } from './lists.ts';
+import { lostFight, mail, news, talk, yell } from './talk.ts';
+import { escapeMarkup } from '@fq2js/engine/text';
 import { listenSsh, type SshServer } from './ssh.ts';
 import { Store } from './store.ts';
 import { TELNET_GREETING, TelnetParser } from './telnet.ts';
@@ -187,7 +189,10 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
             content: shared.content,
             items: shared.items,
             config: shared.config,
-            makeGame: ({ id }, autosave) => {
+            makeGame: ({ id, name }, autosave) => {
+                const me = { id, name };
+                const talking = { realm, store: shared.store, me };
+                const isNew = shared.store.loadPlayer(id) === null;
                 const game = new Game({
                     term,
                     world: shared.world,
@@ -204,11 +209,29 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
                         realm.moved(id, player);
                     },
                     keys: {
+                        T: { help: 'say something to the players here', run: talk(talking) },
+                        Y: { help: 'yell to everyone in the realm', run: yell(talking) },
+                        W: { help: 'your mail: read and write letters', run: mail(talking) },
+                        D: { help: 'the daily news', run: news(talking) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
                         L: { help: 'every player, ranked', run: rankings(realm, shared.store, shared.content.start, shared.items) },
                     },
+                    fought: (_player, monster, result) => {
+                        if (result === 'lost') {
+                            shared.store.addNews(lostFight(name, monster), Date.now());
+                        }
+                    },
                 });
                 realm.attach(id, game);
+                if (isNew) {
+                    shared.store.addNews(`{lightcyan}${escapeMarkup(name)} has come to the realm.`, Date.now());
+                }
+
+                const unread = shared.store.unreadLetters(id);
+                if (unread) {
+                    game.notify(`{lightgreen}You have ${unread} new letter${unread === 1 ? '' : 's'}. (W to read.)`);
+                }
+
                 return game;
             },
             claim: ({ id, name }) => realm.claim(id, name),

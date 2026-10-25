@@ -1,6 +1,6 @@
 // The realm: who's playing on this server and where, so that each player
 // sees the others on their screen, hears when someone arrives or leaves,
-// and can see who's about (P) and how everyone ranks (L).
+// can talk to them, and can see who's about (P) and how everyone ranks (L).
 //
 // The server is one process, so there are no locks: a member's game is
 // told about changes (Game.othersChanged, Game.notify) and draws them when
@@ -27,9 +27,18 @@ export interface Member<F extends FlagRecord> {
 
 // How other players look on the map.
 export const OTHER_PLAYER = { ch: '☻', fg: 11 } as const;
+// How soon a player can say (or yell) something again.
+export const CHAT_WAIT = 1000;
 
 export class Realm<F extends FlagRecord> {
     private readonly members = new Map<number, Member<F>>();
+    // When each member last said something.
+    private readonly lastSaid = new Map<number, number>();
+    private readonly now: () => number;
+
+    public constructor({ now = Date.now }: { now?(): number } = {}) {
+        this.now = now;
+    }
 
     // Takes an account into the realm; false if it's in already (playing
     // somewhere else).
@@ -61,6 +70,7 @@ export class Realm<F extends FlagRecord> {
         }
 
         this.members.delete(accountId);
+        this.lastSaid.delete(accountId);
         if (member.game) {
             this.tellOthers(accountId, `{lightcyan}${escapeMarkup(member.name)} leaves the realm.`);
         }
@@ -103,6 +113,46 @@ export class Realm<F extends FlagRecord> {
             .filter(([, { game }]) => game !== null)
             .map(([accountId, { name, place }]) => ({ accountId, name, place }))
             .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // ---- Talking
+
+    // Whether the member may say something now (not too soon after the last
+    // time); if so, now is the last time.
+    public maySpeak(accountId: number): boolean {
+        const now = this.now();
+        const last = this.lastSaid.get(accountId);
+        if (last !== undefined && now - last < CHAT_WAIT) {
+            return false;
+        }
+
+        this.lastSaid.set(accountId, now);
+        return true;
+    }
+
+    // Tells the others on the member's screen (the text is already markup).
+    public toScreen(accountId: number, text: string): number {
+        const screen = this.members.get(accountId)?.place?.screen;
+        let heard = 0;
+        for (const [id, { game, place }] of this.members) {
+            if (id !== accountId && game && place && place.screen === screen) {
+                game.notify(text);
+                heard++;
+            }
+        }
+        return heard;
+    }
+
+    // Tells everyone else in the realm.
+    public toEveryone(accountId: number, text: string): void {
+        this.tellOthers(accountId, text);
+    }
+
+    // Tells one member, if they're in the realm; false if they aren't.
+    public toMember(accountId: number, text: string): boolean {
+        const game = this.members.get(accountId)?.game;
+        game?.notify(text);
+        return game !== undefined && game !== null;
     }
 
     public get size(): number {

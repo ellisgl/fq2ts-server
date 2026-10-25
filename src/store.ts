@@ -29,6 +29,24 @@ export const CODE_TRIES = 5;
 
 export type CodeCheck = 'right' | 'wrong' | 'none';
 
+// The most letters kept for a player (the oldest go first), and how long
+// the news is kept.
+export const MAILBOX = 50;
+export const NEWS_DAYS = 7;
+
+export interface Letter {
+    id: number;
+    from: string;
+    text: string;
+    sentAt: number;
+    read: boolean;
+}
+
+export interface NewsItem {
+    text: string;
+    at: number;
+}
+
 // Names: 2 to 20 letters, digits, spaces and ' - . (starting with a letter
 // or digit). They're shown to other players, so nothing that could be markup.
 export const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 '.-]{1,19}$/;
@@ -123,6 +141,56 @@ export class Store {
 
     public setPassword(accountId: number, passwordHash: string): void {
         this.db.query('UPDATE accounts SET password_hash = $hash WHERE id = $id').run({ id: accountId, hash: passwordHash });
+    }
+
+    // ---- Letters between players
+
+    public sendLetter(accountId: number, from: string, text: string, at: number): void {
+        this.db.query('INSERT INTO letters (account_id, sender, text, sent_at) VALUES ($id, $from, $text, $at)').run({ id: accountId, from, text, at });
+        this.db
+            .query('DELETE FROM letters WHERE account_id = $id AND id NOT IN (SELECT id FROM letters WHERE account_id = $id ORDER BY sent_at DESC, id DESC LIMIT $keep)')
+            .run({ id: accountId, keep: MAILBOX });
+    }
+
+    // A player's letters, newest first.
+    public letters(accountId: number): Letter[] {
+        const rows: unknown = this.db.query('SELECT id, sender, text, sent_at, read FROM letters WHERE account_id = $id ORDER BY sent_at DESC, id DESC').all({ id: accountId });
+        return (Array.isArray(rows) ? rows : []).map((row: unknown) => {
+            const r = record(row, 'letter');
+            return {
+                id: field(r, 'id', 'letter', integer),
+                from: field(r, 'sender', 'letter', string),
+                text: field(r, 'text', 'letter', string),
+                sentAt: field(r, 'sent_at', 'letter', integer),
+                read: field(r, 'read', 'letter', oneOf([0, 1])) === 1,
+            };
+        });
+    }
+
+    public unreadLetters(accountId: number): number {
+        const row: unknown = this.db.query('SELECT COUNT(*) AS n FROM letters WHERE account_id = $id AND read = 0').get({ id: accountId });
+        return row === null ? 0 : field(record(row, 'count'), 'n', 'count', integer);
+    }
+
+    public markLettersRead(accountId: number): void {
+        this.db.query('UPDATE letters SET read = 1 WHERE account_id = $id').run({ id: accountId });
+    }
+
+    // ---- The news
+
+    // A line of news (news older than NEWS_DAYS is let go).
+    public addNews(text: string, at: number): void {
+        this.db.query('INSERT INTO news (text, at) VALUES ($text, $at)').run({ text, at });
+        this.db.query('DELETE FROM news WHERE at < $before').run({ before: at - NEWS_DAYS * 86_400_000 });
+    }
+
+    // The news since a time, newest first.
+    public news(since: number): NewsItem[] {
+        const rows: unknown = this.db.query('SELECT text, at FROM news WHERE at >= $since ORDER BY at DESC, id DESC').all({ since });
+        return (Array.isArray(rows) ? rows : []).map((row: unknown) => {
+            const r = record(row, 'news');
+            return { text: field(r, 'text', 'news', string), at: field(r, 'at', 'news', integer) };
+        });
     }
 
     // ---- Codes sent by email (only their hashes are kept)

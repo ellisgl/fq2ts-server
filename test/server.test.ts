@@ -268,6 +268,29 @@ describe('telnet', () => {
 });
 
 describe('the realm', () => {
+    test('players talk to each other, and the news has them', async () => {
+        const server = start();
+        const port = server.telnetPort ?? 0;
+        const ann = await telnet(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        const bob = await telnet(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        // (Ann's game hears Bob arrive first; then they're both on screen 1.)
+        await ann.sees('Bob enters the realm.');
+        bob.send('t');
+        await bob.sees('Say:');
+        bob.send('Hello, Ann!\r');
+        await ann.sees('Bob says: "Hello, Ann!"');
+        await bob.sees('You say: "Hello, Ann!"');
+
+        ann.send('d');
+        await ann.sees('The daily news');
+        await ann.sees('Ann has come to the realm.');
+        await ann.sees('Bob has come to the realm.');
+    });
+
     test('players see each other arrive, walk about and leave; P lists them', async () => {
         const server = start();
         const port = server.telnetPort ?? 0;
