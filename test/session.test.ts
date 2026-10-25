@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { Session } from '../../server/session.ts';
+import { Database } from 'bun:sqlite';
+import { join } from 'node:path';
+import { MAX_EMAILS, RESEND_WAIT, Session } from '../../server/session.ts';
 import { Store } from '../../server/store.ts';
+import type { Email } from '../../server/mail.ts';
 import { Game } from '../../engine/game.ts';
 import content from '../../content/index.ts';
-import { bestiary, config, FakeTerminal, gameWorld, itemCatalogue, newPlayer, pick, row, screenText, typed, type Step } from '../helpers.ts';
+import { bestiary, config, FakeTerminal, gameWorld, itemCatalogue, newPlayer, pick, row, screenText, tempDir, typed, type Step } from '../helpers.ts';
 
 // Quick stand-ins for argon2 (the real thing takes a moment per call).
 const hashPassword = (password: string): Promise<string> => Promise.resolve(`hash:${password}`);
@@ -13,12 +16,19 @@ interface Setup {
     store?: Store;
     claim?(id: number): boolean;
     broken?: boolean;
+    mailFails?: boolean;
 }
 
-function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false }: Setup = {}) {
+// The emails sent in this test, and the time it is (moved on by tests).
+let sent: Email[] = [];
+let clock = 0;
+
+function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, mailFails = false }: Setup = {}) {
     const term = new FakeTerminal();
     const logs: string[] = [];
     const released: number[] = [];
+    sent = [];
+    clock = 1_000_000;
     const run = new Session({
         term,
         store,
@@ -35,6 +45,17 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
         claim,
         release: (id) => released.push(id),
         log: (line) => logs.push(line),
+        mailer: {
+            send: (email) => {
+                if (mailFails) {
+                    return Promise.reject(new Error('No mail server.'));
+                }
+
+                sent.push(email);
+                return Promise.resolve();
+            },
+        },
+        now: () => clock,
         hashPassword,
         verifyPassword,
     });
@@ -46,14 +67,28 @@ type Steps = readonly Step[] | ((term: FakeTerminal) => readonly Step[]);
 
 const LOG_IN = pick(0);
 const NEW_PLAYER = pick(1);
+const FORGOT = pick(2);
 const LEAVE = 'escape';
 // From the map: Escape, then "Leave the realm".
 const LEAVE_THE_REALM = ['escape', ...pick(1)];
 // A new game's opening: "A man", then past the scene.
 const OPENING = ['enter', 'x'];
 
+// The code in the last email, typed in (read when it's typed, as it's only
+// sent part way through a test).
+const lastCode = (): string => /your code is (\d+)/.exec(sent.at(-1)?.subject ?? '')?.[1] ?? '';
+const CODE: Step[] = [...Array.from({ length: 6 }, (_, i) => () => lastCode().charAt(i)), 'enter'];
+const EMAIL = typed('hero@example.com');
+// The code prompt's options, after Escape.
+const SEND_AGAIN = pick(1);
+const CHANGE_EMAIL = pick(2);
+const NOT_NOW = 'escape';
+
+// An account with a confirmed email address.
 function account(store: Store, name = 'Hero', password = 'secret1'): number {
-    return store.createAccount(name, `hash:${password}`)?.id ?? 0;
+    const id = store.createAccount(name, `hash:${password}`, `${name.toLowerCase()}@example.com`)?.id ?? 0;
+    store.confirmEmail(id);
+    return id;
 }
 
 describe('the front door', () => {
@@ -63,7 +98,8 @@ describe('the front door', () => {
                 expect(screenText(t.screen)).toContain('V0.94 Rev D');
                 expect(row(t.screen, 17)).toContain('Log in');
                 expect(row(t.screen, 18)).toContain('New player');
-                expect(row(t.screen, 19)).toContain('Leave this place');
+                expect(row(t.screen, 19)).toContain('Forgot password');
+                expect(row(t.screen, 20)).toContain('Leave this place');
                 expect(t.screen.cell(33, 17)).toMatchObject({ fg: 11, bg: 1 });
                 expect(t.screen.cell(33, 18)).toMatchObject({ fg: 9, bg: 1 });
                 return LEAVE;
@@ -81,6 +117,12 @@ describe('new players', () => {
             ...typed('Hero'),
             ...typed('secret1'),
             ...typed('secret1'),
+            ...EMAIL,
+            () => {
+                expect(row(t.screen, 25).trim()).toBe('We emailed a code to hero@example.com.');
+                return lastCode().charAt(0);
+            },
+            ...CODE.slice(1),
             () => {
                 // The game knows the name already, so it only asks the sex.
                 expect(screenText(t.screen)).not.toContain('What is your name');
@@ -94,9 +136,13 @@ describe('new players', () => {
         ]);
         await run.run();
         expect(term.remaining).toBe(0);
-        expect(store.account('hero')?.passwordHash).toBe('hash:secret1');
+        expect(store.account('hero')).toMatchObject({ passwordHash: 'hash:secret1', email: 'hero@example.com', emailConfirmed: true });
         expect(store.loadPlayer(1)).toMatchObject({ name: 'Hero', screen: 721, x: 34, weapon: 'stick' });
-        expect(logs).toEqual(['New account: Hero', 'Hero enters the realm.', 'Hero leaves the realm.']);
+        expect(logs).toEqual(['New account: Hero', 'Hero confirmed their email address.', 'Hero enters the realm.', 'Hero leaves the realm.']);
+        expect(sent).toHaveLength(1);
+        expect(sent[0]).toMatchObject({ to: 'hero@example.com' });
+        expect(sent[0]?.text).toContain(`Your code is ${lastCode()}.`);
+        expect(lastCode()).toMatch(/^\d{6}$/);
     });
 
     test('names must be valid and free; passwords long enough and typed the same twice', async () => {
@@ -123,6 +169,10 @@ describe('new players', () => {
                     says("Those weren't the same."),
                     ...typed('secret1'),
                     ...typed('secret1'),
+                    ...typed('not an address'),
+                    says("That doesn't look like an email address."),
+                    ...typed('fresh@example.com'),
+                    ...CODE,
                     ...OPENING,
                     ...LEAVE_THE_REALM,
                     LEAVE,
@@ -168,6 +218,7 @@ describe('new players', () => {
                 },
                 ...typed('ecret1'),
                 ...typed('secret1'),
+                ...EMAIL,
                 () => {
                     expect(row(t.screen, 25).trim()).toBe('Someone just took that name. Try another.');
                     return 'x';
@@ -178,6 +229,231 @@ describe('new players', () => {
         );
         await run.run();
         expect(term.remaining).toBe(0);
+    });
+});
+
+describe('email addresses', () => {
+    test('a wrong code is turned down, and the right one still works', async () => {
+        const { run, store, term } = session((t) => [
+            ...NEW_PLAYER,
+            ...typed('Hero'),
+            ...typed('secret1'),
+            ...typed('secret1'),
+            ...EMAIL,
+            ...typed('000000'),
+            () => {
+                expect(row(t.screen, 25).trim()).toBe("That isn't the code.");
+                return 'x';
+            },
+            ...CODE,
+            ...OPENING,
+            ...LEAVE_THE_REALM,
+            LEAVE,
+        ]);
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')?.emailConfirmed).toBe(true);
+    });
+
+    test('"Not now" keeps the account; logging in asks for the same code', async () => {
+        const store = new Store(':memory:');
+        const { run, term } = session(
+            [...NEW_PLAYER, ...typed('Hero'), ...typed('secret1'), ...typed('secret1'), ...EMAIL, 'escape', NOT_NOW, ...LOG_IN, ...typed('hero'), ...typed('secret1'), ...CODE, ...OPENING, ...LEAVE_THE_REALM, LEAVE],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(sent).toHaveLength(1);
+        expect(store.account('hero')?.emailConfirmed).toBe(true);
+    });
+
+    test('a new code: not straight away, then in place of the old one', async () => {
+        const store = new Store(':memory:');
+        let first = '';
+        const { run, term } = session(
+            (t) => [
+                ...NEW_PLAYER,
+                ...typed('Hero'),
+                ...typed('secret1'),
+                ...typed('secret1'),
+                ...EMAIL,
+                'escape',
+                ...SEND_AGAIN,
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('A code was sent a moment ago. Please use that one.');
+                    first = lastCode();
+                    clock += RESEND_WAIT;
+                    return 'escape';
+                },
+                'escape',
+                ...SEND_AGAIN,
+                // The old code, which no longer works.
+                ...Array.from({ length: 6 }, (_, i) => () => first.charAt(i)),
+                'enter',
+                () => {
+                    expect(sent).toHaveLength(2);
+                    expect(row(t.screen, 25).trim()).toBe("That isn't the code.");
+                    return 'x';
+                },
+                ...CODE,
+                ...OPENING,
+                ...LEAVE_THE_REALM,
+                LEAVE,
+            ],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+    });
+
+    test('the address can be changed before it is confirmed', async () => {
+        const { run, store, term } = session([
+            ...NEW_PLAYER,
+            ...typed('Hero'),
+            ...typed('secret1'),
+            ...typed('secret1'),
+            ...typed('typo@exmaple.com'),
+            'escape',
+            ...CHANGE_EMAIL,
+            ...EMAIL,
+            ...CODE,
+            ...OPENING,
+            ...LEAVE_THE_REALM,
+            LEAVE,
+        ]);
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(sent.map((e) => e.to)).toEqual(['typo@exmaple.com', 'hero@example.com']);
+        expect(store.account('hero')).toMatchObject({ email: 'hero@example.com', emailConfirmed: true });
+    });
+
+    test('an account from before email addresses is asked for one', async () => {
+        const path = join(tempDir(), 'old.sqlite');
+        const old = new Database(path, { create: true });
+        old.run('CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, created_at TEXT NOT NULL, last_login TEXT)');
+        old.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Hero', 'hash:secret1', 'then')");
+        old.close();
+        const store = new Store(path);
+        const { run, term } = session(
+            (t) => [
+                ...LOG_IN,
+                ...typed('hero'),
+                ...typed('secret1'),
+                ...EMAIL,
+                ...CODE,
+                () => {
+                    expect(screenText(t.screen)).toContain('And are you');
+                    return 'enter';
+                },
+                'x',
+                ...LEAVE_THE_REALM,
+                LEAVE,
+            ],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')).toMatchObject({ email: 'hero@example.com', emailConfirmed: true });
+    });
+
+    test("an email that can't be sent is logged, and the player told", async () => {
+        const { run, logs, term } = session(
+            (t) => [
+                ...NEW_PLAYER,
+                ...typed('Hero'),
+                ...typed('secret1'),
+                ...typed('secret1'),
+                ...EMAIL,
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe("The email couldn't be sent. Please try later.");
+                    return 'x';
+                },
+                NOT_NOW,
+                LEAVE,
+            ],
+            { mailFails: true },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(logs).toContain("Couldn't email Hero: No mail server.");
+    });
+
+    test(`one visit can only ask for ${MAX_EMAILS} emails`, async () => {
+        // A minute later, another.
+        const again = (): Step[] => [
+            () => {
+                clock += RESEND_WAIT;
+                return 'escape';
+            },
+            ...SEND_AGAIN,
+        ];
+        const { run, term } = session((t) => [
+            ...NEW_PLAYER,
+            ...typed('Hero'),
+            ...typed('secret1'),
+            ...typed('secret1'),
+            ...EMAIL,
+            ...Array.from({ length: MAX_EMAILS }, again).flat(),
+            () => {
+                expect(row(t.screen, 25).trim()).toBe("That's all the emails for this visit.");
+                return 'x';
+            },
+            NOT_NOW,
+            LEAVE,
+        ]);
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(sent).toHaveLength(MAX_EMAILS);
+    });
+});
+
+describe('forgotten passwords', () => {
+    test('a code by email, then a new password', async () => {
+        const store = new Store(':memory:');
+        account(store);
+        const { run, logs, term } = session(
+            (t) => [
+                ...FORGOT,
+                ...typed('hero'),
+                ...CODE,
+                ...typed('newpass'),
+                ...typed('newpass'),
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('Your password is changed. Log in with it now.');
+                    return 'x';
+                },
+                LEAVE,
+            ],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')?.passwordHash).toBe('hash:newpass');
+        expect(sent[0]).toMatchObject({ to: 'hero@example.com' });
+        expect(sent[0]?.text).toContain("reset the password of Hero's account");
+        expect(logs).toEqual(['Hero reset their password.']);
+    });
+
+    test('only for accounts with a confirmed address', async () => {
+        const store = new Store(':memory:');
+        store.createAccount('Unsure', 'hash:secret1', 'unsure@example.com');
+        const says = (t: FakeTerminal): Step => () => {
+            expect(row(t.screen, 25).trim()).toBe('There is no account by that name with a confirmed email.');
+            return 'x';
+        };
+        const { run, term } = session((t) => [...FORGOT, ...typed('nobody'), says(t), ...FORGOT, ...typed('unsure'), says(t), LEAVE], { store });
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(sent).toEqual([]);
+    });
+
+    test('Escape at the code leaves the password as it was', async () => {
+        const store = new Store(':memory:');
+        account(store);
+        const { run, term } = session([...FORGOT, ...typed('hero'), 'escape', LEAVE], { store });
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(store.account('hero')?.passwordHash).toBe('hash:secret1');
     });
 });
 

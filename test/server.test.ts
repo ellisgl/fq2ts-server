@@ -122,6 +122,12 @@ async function newPlayer(client: Client, name = 'Hero'): Promise<void> {
     client.send(`${DOWN}\r`);
     await client.sees('name:');
     client.send(`${name}\rsecret1\rsecret1\r`);
+    await client.sees('Email:');
+    client.send(`${name.toLowerCase()}@example.com\r`);
+    // With no mail server, the email goes to the log.
+    await until('the code to be emailed', () => logs.some((line) => line.includes('your code is')));
+    const code = /your code is (\d+)/.exec(logs.find((line) => line.includes('your code is')) ?? '')?.[1] ?? '';
+    client.send(`${code}\r`);
     await client.sees('And');
     client.send('\r');
     await client.sees('wake');

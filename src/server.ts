@@ -16,6 +16,7 @@ import { readItems, type ItemCatalogue } from '../engine/items.ts';
 import type { FlagRecord } from '../engine/player.ts';
 import { field, integer, oneOf, record, string } from '../engine/validate.ts';
 import { RemoteIO } from './remote.ts';
+import { logMailer, type Mailer } from './mail.ts';
 import { Session } from './session.ts';
 import { Store } from './store.ts';
 import { TELNET_GREETING, TelnetParser } from './telnet.ts';
@@ -35,6 +36,9 @@ export interface ServerOptions<F extends FlagRecord> {
     // How often to look for idle players, in milliseconds (default: 30s).
     idleCheck?: number;
     log?(line: string): void;
+    // Sends the codes that confirm addresses and reset passwords (default:
+    // writes them to the log).
+    mailer?: Mailer;
     // For tests: quicker password hashing.
     hashPassword?(password: string): Promise<string>;
     verifyPassword?(password: string, hash: string): Promise<boolean>;
@@ -121,6 +125,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
     const log = options.log ?? ((line: string) => {
         console.log(`${new Date().toISOString()} ${line}`);
     });
+    const mailer = options.mailer ?? logMailer(log);
     const readJson = (file: string): unknown => JSON.parse(readFileSync(join(dataDir, file), 'utf8'));
     const shared: Shared<F> = {
         world: World.load(join(dataDir, 'maps')),
@@ -178,6 +183,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
                 playing.delete(id);
             },
             log,
+            mailer,
             ...(options.hashPassword ? { hashPassword: options.hashPassword } : {}),
             ...(options.verifyPassword ? { verifyPassword: options.verifyPassword } : {}),
         });
