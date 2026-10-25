@@ -23,5 +23,9 @@
   "eslint.format.enable": true,
   "eslint.workingDirectories": [{ "mode": "auto" }],
   
-  "js/ts.format.insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis": true
+  // No spaces inside parentheses, to match ESLint's space-in-parens: never
+  // (older VS Code versions only read the typescript./javascript. keys).
+  "js/ts.format.insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis": false,
+  "typescript.format.insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis": false,
+  "javascript.format.insertSpaceAfterOpeningAndBeforeClosingNonemptyParenthesis": false
 }
