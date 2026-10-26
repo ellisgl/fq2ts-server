@@ -228,6 +228,33 @@ export class Store {
         });
     }
 
+    // ---- The bounty board
+
+    // Gold on a player's head (the poster has paid it already).
+    public postBounty(targetId: number, posterId: number, amount: number, at: number): void {
+        this.db.query('INSERT INTO bounties (target_id, poster_id, amount, at) VALUES ($target, $poster, $amount, $at)').run({ target: targetId, poster: posterId, amount, at });
+    }
+
+    // Every player with a price on their head, the biggest first.
+    public bounties(): { name: string; amount: number }[] {
+        const rows: unknown = this.db
+            .query('SELECT a.name, SUM(b.amount) AS amount FROM bounties b JOIN accounts a ON a.id = b.target_id GROUP BY b.target_id ORDER BY amount DESC, a.name COLLATE NOCASE')
+            .all();
+        return (Array.isArray(rows) ? rows : []).map((row: unknown) => {
+            const r = record(row, 'bounty');
+            return { name: field(r, 'name', 'bounty', string), amount: field(r, 'amount', 'bounty', integer) };
+        });
+    }
+
+    // Takes down every bounty on a player; what they came to.
+    public claimBounties(targetId: number): number {
+        return this.db.transaction(() => {
+            const row: unknown = this.db.query('SELECT COALESCE(SUM(amount), 0) AS total FROM bounties WHERE target_id = $id').get({ id: targetId });
+            this.db.query('DELETE FROM bounties WHERE target_id = $id').run({ id: targetId });
+            return row === null ? 0 : field(record(row, 'bounty'), 'total', 'bounty', integer);
+        })();
+    }
+
     // ---- The world's state (as JSON, unchecked: the game checks it)
 
     public worldValues(): Record<string, unknown> {

@@ -144,6 +144,14 @@ export function attack<F extends FlagRecord, W extends WorldRecord = WorldRecord
             }
             realm.toMember(target.accountId, `{lightred}${escapeMarkup(me.name)} beat you, and took $${taken}.`);
             store.addNews(`{lightred}${escapeMarkup(me.name)} beat ${name} in a fight.`, at);
+
+            // The bounties on their head are the winner's.
+            const bounty = store.claimBounties(target.accountId);
+            if (bounty > 0) {
+                g.gold += bounty;
+                g.write(`{yellow}You collect the $${bounty} bounty on ${name}'s head!`);
+                store.addNews(`{yellow}${escapeMarkup(me.name)} collected the $${bounty} bounty on ${name}'s head.`, at);
+            }
         } else if (result === 'lost') {
             if (current) {
                 current.gold += lost;

@@ -141,6 +141,21 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: 'The bounty board',
+        up: (db) => {
+            db.run(`
+                CREATE TABLE bounties (
+                    id INTEGER PRIMARY KEY,
+                    target_id INTEGER NOT NULL REFERENCES accounts(id),
+                    poster_id INTEGER NOT NULL REFERENCES accounts(id),
+                    amount INTEGER NOT NULL,
+                    at INTEGER NOT NULL
+                );
+                CREATE INDEX bounties_target ON bounties (target_id);
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

@@ -13,7 +13,7 @@ describe('migrate', () => {
         const db = new Database(':memory:');
         expect(migrate(db)).toEqual(MIGRATIONS.map((m) => m.description));
         expect(version(db)).toEqual({ user_version: MIGRATIONS.length });
-        expect(tables(db)).toEqual(['accounts', 'accounts_email', 'address_bans', 'codes', 'days', 'letters', 'letters_account', 'meta', 'news', 'news_at', 'players', 'players_exp', 'world'].map((name) => ({ name })));
+        expect(tables(db)).toEqual(['accounts', 'accounts_email', 'address_bans', 'bounties', 'bounties_target', 'codes', 'days', 'letters', 'letters_account', 'meta', 'news', 'news_at', 'players', 'players_exp', 'world'].map((name) => ({ name })));
         expect(migrate(db)).toEqual([]);
     });
 

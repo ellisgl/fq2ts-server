@@ -26,6 +26,7 @@ import { Days } from './days.ts';
 import { attack } from './pvp.ts';
 import { adminMenu } from './admin.ts';
 import { Gifts } from './gifts.ts';
+import { bountyBoard } from './bounty.ts';
 import { DEFAULT_RULES, type Rules } from './rules.ts';
 import { Guard, normalAddress, webAddress } from './guard.ts';
 import { rankings, whoIsOnline } from './lists.ts';
@@ -303,6 +304,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         D: { help: 'the daily news', run: news(talking) },
                         H: { help: 'fight a player next to you', run: attack({ realm, store: shared.store, days, world: shared.world, items: shared.items, me, now, fightsPerDay: rules.fightsPerDay, goldPercent: rules.pvpGoldPercent, expPercent: rules.pvpExpPercent }) },
                         G: { help: 'give gold or an item to a player next to you', run: gifts.give(me) },
+                        K: { help: 'the bounty board (in town)', run: bountyBoard({ realm, store: shared.store, world: shared.world, me, now }) },
                         A: { help: 'accept (or refuse) what you were offered', run: gifts.accept(me) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
                         ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, kickAddress, log }) } } : {}),
