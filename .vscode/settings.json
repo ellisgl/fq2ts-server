@@ -15,6 +15,11 @@
     "editor.defaultFormatter": "dbaeumer.vscode-eslint"
   },
 
+  // Use the project's TypeScript (the one `bun run check` uses), not the one
+  // VS Code comes with, so the editor and the checks agree.
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
   "eslint.validate": [
     "javascript",
     "typescript",
