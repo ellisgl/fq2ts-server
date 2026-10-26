@@ -2,7 +2,7 @@ import { describe, expect, spyOn, test } from 'bun:test';
 import { Realm, OTHER_PLAYER } from '../src/realm.ts';
 import { rankings, whoIsOnline } from '../src/lists.ts';
 import { Store } from '../src/store.ts';
-import { itemCatalogue, makeGame, newPlayer, scriptContext, start, testWorld, type TestFlags } from '@fq2js/engine/fixture';
+import { makeGame, newPlayer, scriptContext, testWorld, type TestFlags } from '@fq2js/engine/fixture';
 import { screenText } from '@fq2js/engine/testing';
 
 // A member's game, with what the realm tells it counted.
@@ -107,7 +107,7 @@ describe('P and L', () => {
         expect(term.remaining).toBe(0);
     });
 
-    test('L ranks every saved player by experience, marking who is in', async () => {
+    test('L ranks every saved player by experience, marking who is in (without reading their saves)', async () => {
         const store = new Store(':memory:');
         const save = (name: string, exp: number): void => {
             const id = store.createAccount(name, 'h', `${name}@example.com`)?.id ?? 0;
@@ -127,13 +127,15 @@ describe('P and L', () => {
                         ['1', 'High', '500'],
                         ['2', '*Mid', '50'],
                         ['3', 'Low', '5'],
+                        // (A save with no experience in it counts as none.)
+                        ['4', 'Broken', '0'],
                     ]);
-                    expect(screenText(term.screen)).toContain('Players (3)');
+                    expect(screenText(term.screen)).toContain('Players (4)');
                     return 'escape';
                 },
             ],
         });
-        await rankings(realm, store, start, itemCatalogue)(g);
+        await rankings(realm, store)(g);
         expect(term.remaining).toBe(0);
     });
 });

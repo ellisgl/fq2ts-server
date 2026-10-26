@@ -359,20 +359,33 @@ export class Store {
         return state;
     }
 
-    // Every account's saved player (unchecked), with the account's name.
-    public allPlayers(): { name: string; player: unknown }[] {
-        const rows: unknown = this.db.query('SELECT a.name, p.state FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY a.name').all();
-        return (Array.isArray(rows) ? rows : []).map((row: unknown) => {
-            const r = record(row, 'player');
-            const state: unknown = JSON.parse(field(r, 'state', 'player', string));
-            return { name: field(r, 'name', 'player', string), player: state };
-        });
+
+    // (Its experience and gold are kept beside it too, for the rankings.)
+    public savePlayer(accountId: number, player: unknown): void {
+        const whole = (key: string): number => {
+            const value: unknown = typeof player === 'object' && player !== null && key in player ? Reflect.get(player, key) : 0;
+            return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
+        };
+        this.db
+            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold) VALUES ($id, $state, $now, $exp, $gold)
+                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold`)
+            .run({ id: accountId, state: JSON.stringify(player), now: now(), exp: whole('exp'), gold: whole('gold') });
     }
 
-    public savePlayer(accountId: number, player: unknown): void {
-        this.db
-            .query('INSERT INTO players (account_id, state, saved_at) VALUES ($id, $state, $now) ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now')
-            .run({ id: accountId, state: JSON.stringify(player), now: now() });
+    // The players with the most experience, most first (then by name), and
+    // how many players there are.
+    public rankings(limit: number): { players: { name: string; exp: number; gold: number }[]; total: number } {
+        const rows: unknown = this.db
+            .query('SELECT a.name, p.exp, p.gold FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY p.exp DESC, a.name COLLATE NOCASE LIMIT $limit')
+            .all({ limit });
+        const count: unknown = this.db.query('SELECT COUNT(*) AS n FROM players').get();
+        return {
+            players: (Array.isArray(rows) ? rows : []).map((row: unknown) => {
+                const r = record(row, 'ranking');
+                return { name: field(r, 'name', 'ranking', string), exp: field(r, 'exp', 'ranking', integer), gold: field(r, 'gold', 'ranking', integer) };
+            }),
+            total: count === null ? 0 : field(record(count, 'count'), 'n', 'count', integer),
+        };
     }
 }
 

@@ -302,7 +302,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         H: { help: 'fight a player next to you', run: attack({ realm, store: shared.store, days, world: shared.world, items: shared.items, me, now, fightsPerDay: rules.fightsPerDay, goldPercent: rules.pvpGoldPercent, expPercent: rules.pvpExpPercent }) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
                         ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, kickAddress, log }) } } : {}),
-                        L: { help: 'every player, ranked', run: rankings(realm, shared.store, shared.content.start, shared.items) },
+                        L: { help: 'every player, ranked', run: rankings(realm, shared.store) },
                     },
                     worldStore,
                     news: (text) => {

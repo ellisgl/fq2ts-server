@@ -127,6 +127,20 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: "Players' experience and gold beside their saves, for the rankings",
+        up: (db) => {
+            db.run(`
+                ALTER TABLE players ADD COLUMN exp INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE players ADD COLUMN gold INTEGER NOT NULL DEFAULT 0;
+                UPDATE players SET
+                    exp = COALESCE(CAST(json_extract(state, '$.exp') AS INTEGER), 0),
+                    gold = COALESCE(CAST(json_extract(state, '$.gold') AS INTEGER), 0)
+                WHERE json_valid(state);
+                CREATE INDEX players_exp ON players (exp DESC);
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

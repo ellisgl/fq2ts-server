@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
 import { CODE_MINUTES, CODE_TRIES, Store, validName } from '../src/store.ts';
+import { MIGRATIONS, migrate } from '../src/migrations.ts';
 import { tempDir } from '@fq2js/engine/testing';
 
 describe('Store', () => {
@@ -91,6 +92,32 @@ test('accounts never finished (no confirmed email, never played) are removed aft
     expect(store.createAccount('Gone', 'h', 'g@example.com')).not.toBeNull();
 });
 
+test('rankings: players by experience, most first, from what saving keeps beside the save', () => {
+    const store = new Store(':memory:');
+    for (const [name, exp] of [['Ann', 50], ['Bob', 500], ['cat', 50], ['Dan', 5]] as const) {
+        store.savePlayer(store.createAccount(name, 'h', `${name}@example.com`)?.id ?? 0, { exp, gold: exp * 2 });
+    }
+    expect(store.rankings(3)).toEqual({
+        players: [
+            { name: 'Bob', exp: 500, gold: 1000 },
+            { name: 'Ann', exp: 50, gold: 100 },
+            { name: 'cat', exp: 50, gold: 100 },
+        ],
+        total: 4,
+    });
+});
+
+test('a database from before the rankings gets them from the saves', () => {
+    const path = join(tempDir(), 'before.sqlite');
+    const db = new Database(path, { create: true });
+    // (Steps 1 to 8 of the layout, then a save written as it was.)
+    migrate(db, MIGRATIONS.slice(0, 8));
+    db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
+    db.run('INSERT INTO players (account_id, state, saved_at) VALUES (1, \'{"exp": 77, "gold": 3}\', \'then\')');
+    db.close();
+    expect(new Store(path).rankings(10).players).toEqual([{ name: 'Old', exp: 77, gold: 3 }]);
+});
+
 describe('one address, one account', () => {
     test('a confirmed address is in use (in any case) for every other account', () => {
         const store = new Store(':memory:');
@@ -121,6 +148,7 @@ describe('one address, one account', () => {
         const path = join(tempDir(), 'shared.sqlite');
         const old = new Database(path, { create: true });
         old.run('CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL, created_at TEXT NOT NULL, last_login TEXT, email TEXT, email_confirmed INTEGER NOT NULL DEFAULT 0)');
+        old.run('CREATE TABLE players (account_id INTEGER PRIMARY KEY, state TEXT NOT NULL, saved_at TEXT NOT NULL)');
         old.run('CREATE TABLE codes (account_id INTEGER NOT NULL, purpose TEXT NOT NULL, code_hash TEXT NOT NULL, sent_at INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (account_id, purpose))');
         for (const name of ['One', 'Two', 'Three']) {
             old.run("INSERT INTO accounts (name, password_hash, created_at, email, email_confirmed) VALUES (?, 'h', 'then', 'Shared@example.com', 1)", [name]);
