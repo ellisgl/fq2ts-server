@@ -97,7 +97,7 @@ async function browser(port: number, { size = [80, 25] as [number, number] | nul
     };
 }
 
-async function ssh(port: number, { size = [80, 25] as [number, number], user = 'anyone' } = {}): Promise<Client & { resize(columns: number, rows: number): void }> {
+async function ssh(port: number, { size = [80, 25] as [number, number], user = 'anyone', term = 'xterm', env = {} } = {}): Promise<Client & { resize(columns: number, rows: number): void }> {
     let text = '';
     let isClosed = false;
     const model = new ScreenModel();
@@ -105,7 +105,7 @@ async function ssh(port: number, { size = [80, 25] as [number, number], user = '
     const stream = await new Promise<import('ssh2').ClientChannel>((resolve, reject) => {
         client
             .on('ready', () => {
-                client.shell({ cols: size[0], rows: size[1], term: 'xterm' }, (error, channel) => {
+                client.shell({ cols: size[0], rows: size[1], term }, { env }, (error, channel) => {
                     if (error) {
                         reject(error);
                     } else {
@@ -357,6 +357,13 @@ describe('the web', () => {
         await client.sees('HP 100/100');
     });
 
+    test('a browser is sent true colour', async () => {
+        const server = start();
+        const client = await browser(server.webPort ?? 0);
+        await client.sees('Log');
+        expect(new TextDecoder().decode(client.raw())).toContain(';38;2;');
+    });
+
     test('a browser that never says its size starts anyway (at 80x25)', async () => {
         const server = start();
         const client = await browser(server.webPort ?? 0, { size: null });
@@ -390,6 +397,19 @@ describe('SSH', () => {
         client.send('\x03');
         await client.closed();
         await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
+    });
+
+    test.each([
+        ['xterm', {}, /\x1b\[0;97;40m/, /;38;/],
+        ['xterm-256color', {}, /;38;5;/, /;38;2;/],
+        ['xterm-256color', { COLORTERM: 'truecolor' }, /;38;2;/, /;38;5;/],
+    ])('colours as the terminal shows them: %p %p', async (term, env, used, unused) => {
+        const server = withSsh();
+        const client = await ssh(server.sshPort ?? 0, { term, env });
+        await client.sees('Log');
+        const raw = new TextDecoder().decode(client.raw());
+        expect(raw).toMatch(used);
+        expect(raw).not.toMatch(unused);
     });
 
     test('the window size comes from the terminal; a new size redraws the screen', async () => {

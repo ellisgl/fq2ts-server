@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Server, ServerWebSocket } from 'bun';
 import { Terminal } from '@fq2js/engine/terminal';
+import type { ColorDepth } from '@fq2js/engine/screen';
 import type { World } from '@fq2js/engine/world';
 import { Game, type Config, type Content } from '@fq2js/engine/game';
 import type { Bestiary } from '@fq2js/engine/combat';
@@ -121,14 +122,15 @@ class Connection<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // Where the player is connecting from.
     public readonly address: string;
 
-    public constructor(send: (text: string) => void, hangUp: () => void, address: string, name?: string) {
+    // `colors` is how many the player's terminal shows.
+    public constructor(send: (text: string) => void, hangUp: () => void, address: string, colors: ColorDepth, name?: string) {
         this.address = address;
         this.io = new RemoteIO((text) => {
             if (!this.closed) {
                 send(text);
             }
         });
-        this.term = new Terminal({ input: this.io.input, output: this.io.output, ...(name === undefined ? {} : { name }) });
+        this.term = new Terminal({ input: this.io.input, output: this.io.output, colors, ...(name === undefined ? {} : { name }) });
         this.hangUp = hangUp;
     }
 
@@ -179,7 +181,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
         store: new Store(options.database, { log, mailbox: rules.mailbox, newsDays: rules.newsDays }),
     };
     const connections = new Set<Connection<F, W>>();
-    const connect = (send: (text: string) => void, hangUp: () => void, address: string): Connection<F, W> => new Connection<F, W>(send, hangUp, normalAddress(address), options.gameName);
+    const connect = (send: (text: string) => void, hangUp: () => void, address: string, colors: ColorDepth): Connection<F, W> => new Connection<F, W>(send, hangUp, normalAddress(address), colors, options.gameName);
     const guard = new Guard({ rules, now: options.now ?? Date.now });
     // Ends every connection from an address (it's been banned).
     const kickAddress = (address: string, message: string): void => {
@@ -419,6 +421,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                             ws.close();
                         },
                         ws.data.address,
+                        // (xterm.js shows any colour.)
+                        'true',
                     );
                     ws.data.connection = connection;
                     connections.add(connection);
@@ -471,8 +475,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             hostKeyFile: options.ssh.hostKeyFile,
             log,
             maxPending: MAX_PENDING,
-            connect: ({ columns, rows }, send, hangUp, address) => {
-                const connection = connect(send, hangUp, address);
+            connect: ({ columns, rows, colors }, send, hangUp, address) => {
+                const connection = connect(send, hangUp, address, colors);
                 connection.io.resized(columns, rows);
                 connections.add(connection);
                 if (!turnedAway(connection)) {

@@ -5,6 +5,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { Server, utils, type ServerChannel } from 'ssh2';
+import { colorDepth, type ColorDepth } from '@fq2js/engine/screen';
 
 // What the server does with a player who has connected.
 export interface SshPlayer {
@@ -22,10 +23,10 @@ export interface SshOptions {
     log(line: string): void;
     // The most output kept for a player who isn't reading it.
     maxPending: number;
-    // A player has a terminal, of this size; `send` writes to it, and
-    // `hangUp` ends the connection. `address` is where they're connecting
-    // from.
-    connect(size: { columns: number; rows: number }, send: (text: string) => void, hangUp: () => void, address: string): SshPlayer;
+    // A player has a terminal, of this size and showing this many colours;
+    // `send` writes to it, and `hangUp` ends the connection. `address` is
+    // where they're connecting from.
+    connect(terminal: { columns: number; rows: number; colors: ColorDepth }, send: (text: string) => void, hangUp: () => void, address: string): SshPlayer;
     // The server couldn't listen (its port is taken, for one).
     failed(error: Error): void;
 }
@@ -80,6 +81,9 @@ export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, f
         // kept until the client goes.
         let session = false;
         let size = { columns: 80, rows: 25 };
+        // The terminal's type (TERM), and COLORTERM if the client sends it,
+        // for how many colours it shows.
+        const env: Record<string, string> = {};
         const timer = setTimeout(() => {
             if (!shell) {
                 client.end();
@@ -102,7 +106,16 @@ export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, f
                     size = { columns: info.cols, rows: info.rows };
                 }
 
+                env['TERM'] = info.term;
                 answer(ok);
+            });
+            channel.on('env', (ok, reject, info) => {
+                if (info.key === 'COLORTERM') {
+                    env['COLORTERM'] = info.val;
+                    answer(ok);
+                } else {
+                    answer(reject);
+                }
             });
             channel.on('shell', (ok, reject) => {
                 // One game per connection.
@@ -121,8 +134,9 @@ export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, f
                     stream.end();
                     client.end();
                 };
+                // (No TERM, no terminal: the 16 colours.)
                 player = connect(
-                    size,
+                    { ...size, colors: env['TERM'] ? colorDepth(env) : '16' },
                     (text) => {
                         if (stream.writableLength > maxPending) {
                             log('SSH: a player stopped reading; closing their connection.');
