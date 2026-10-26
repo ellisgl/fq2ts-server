@@ -661,6 +661,28 @@ describe('logging in', () => {
         expect(term.remaining).toBe(0);
     });
 
+    test('a banned account is told why, and not let in (and it is no wrong password)', async () => {
+        const store = new Store(':memory:');
+        const id = account(store);
+        store.setBanned(id, 'Rude to the innkeeper.');
+        const { run, logs, term } = session(
+            (t) => [
+                ...LOG_IN,
+                ...typed('hero'),
+                ...typed('secret1'),
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('You are banned from the realm: Rude to the innkeeper.');
+                    return 'x';
+                },
+                LEAVE,
+            ],
+            { store },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(logs).toEqual(['Hero tried to come in, but is banned.']);
+    });
+
     test('an account already playing elsewhere is turned away', async () => {
         const store = new Store(':memory:');
         account(store);

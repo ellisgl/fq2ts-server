@@ -24,6 +24,7 @@ import { Realm } from './realm.ts';
 import { ServerWorld } from './world-state.ts';
 import { Days } from './days.ts';
 import { attack } from './pvp.ts';
+import { adminMenu } from './admin.ts';
 import { rankings, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2js/engine/text';
@@ -39,6 +40,9 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     // The database file, or ':memory:'.
     database: string;
     host?: string;
+    // Where the web page listens, if not `host` (127.0.0.1 behind a TLS
+    // proxy, while telnet and SSH listen to everyone).
+    webHost?: string;
     // null turns that way of connecting off; 0 picks a free port.
     telnetPort?: number | null;
     webPort?: number | null;
@@ -145,6 +149,7 @@ class Connection<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
 export function startServer<F extends FlagRecord, W extends WorldRecord = WorldRecord>(options: ServerOptions<F, W>): RunningServer {
     const { content, dataDir, host = '127.0.0.1', telnetPort = 2323, webPort = 8080, maxPlayers = 50, idleMinutes = 30 } = options;
+    const webHost = options.webHost ?? host;
     const log = options.log ?? ((line: string) => {
         console.log(`${new Date().toISOString()} ${line}`);
     });
@@ -163,6 +168,15 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     const connections = new Set<Connection<F, W>>();
     const connect = (send: (text: string) => void, hangUp: () => void): Connection<F, W> => new Connection<F, W>(send, hangUp, options.gameName);
     const realm = new Realm<F, W>();
+    // Whose connection is whose (to kick them).
+    const playingOn = new Map<number, Connection<F, W>>();
+    const kick = (accountId: number, message: string): void => {
+        const connection = playingOn.get(accountId);
+        if (connection) {
+            connection.say(message);
+            connection.close();
+        }
+    };
     const now = options.now ?? Date.now;
     const days = new Days<F, W>({ store: shared.store, content: shared.content, realm, now });
     const worldStore = new ServerWorld(shared.store, shared.content.world, () => {
@@ -200,8 +214,9 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             content: shared.content,
             items: shared.items,
             config: shared.config,
-            makeGame: ({ id, name }, autosave) => {
+            makeGame: ({ id, name, admin }, autosave) => {
                 const me = { id, name };
+                playingOn.set(id, connection);
                 const talking = { realm, store: shared.store, me };
                 const isNew = shared.store.loadPlayer(id) === null;
                 // (A player back on a new day starts it afresh.)
@@ -228,6 +243,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         D: { help: 'the daily news', run: news(talking) },
                         H: { help: 'fight a player next to you', run: attack({ realm, store: shared.store, days, world: shared.world, items: shared.items, me, now }) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
+                        ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, log }) } } : {}),
                         L: { help: 'every player, ranked', run: rankings(realm, shared.store, shared.content.start, shared.items) },
                     },
                     worldStore,
@@ -255,6 +271,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             claim: ({ id, name }) => realm.claim(id, name),
             release: (id) => {
                 realm.release(id);
+                playingOn.delete(id);
             },
             log,
             mailer,
@@ -393,7 +410,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     if (webPort !== null) {
         const parse = oneOf(['input', 'resize'] as const);
         web = Bun.serve<WebData>({
-            hostname: host,
+            hostname: webHost,
             port: webPort,
             fetch: (request, server) => {
                 const url = new URL(request.url);
@@ -456,7 +473,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                 },
             },
         });
-        log(`Web: http://${host}:${web.port}/`);
+        log(`Web: http://${webHost}:${web.port}/`);
     }
 
     // ---- SSH

@@ -21,6 +21,10 @@ export interface Account {
     // null for accounts made before there were email addresses.
     email: string | null;
     emailConfirmed: boolean;
+    // Admins can kick and ban players (the ! key in the game).
+    admin: boolean;
+    // Why the account is banned, or null if it isn't.
+    banned: string | null;
 }
 
 // How long a code works, and how many guesses it gets.
@@ -86,20 +90,23 @@ export class Store {
 
     // The account with this name (in any case), if there is one.
     public account(name: string): Account | null {
-        const row: unknown = this.db.query('SELECT id, name, password_hash, email, email_confirmed FROM accounts WHERE name = $name').get({ name });
-        if (row === null) {
-            return null;
-        }
+        const row: unknown = this.db.query(`SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE name = $name`).get({ name });
+        return row === null ? null : readAccount(row);
+    }
 
-        const r = record(row, 'account');
-        const email = r['email'];
-        return {
-            id: field(r, 'id', 'account', integer),
-            name: field(r, 'name', 'account', string),
-            passwordHash: field(r, 'password_hash', 'account', string),
-            email: email === null ? null : field(r, 'email', 'account', string),
-            emailConfirmed: field(r, 'email_confirmed', 'account', oneOf([0, 1])) === 1,
-        };
+    // Every account, by name.
+    public accounts(): Account[] {
+        const rows: unknown = this.db.query(`SELECT ${ACCOUNT_COLUMNS} FROM accounts ORDER BY name`).all();
+        return (Array.isArray(rows) ? rows : []).map((row: unknown) => readAccount(row));
+    }
+
+    public setAdmin(accountId: number, admin: boolean): void {
+        this.db.query('UPDATE accounts SET admin = $admin WHERE id = $id').run({ id: accountId, admin: admin ? 1 : 0 });
+    }
+
+    // Bans the account, saying why (or lifts it, with null).
+    public setBanned(accountId: number, reason: string | null): void {
+        this.db.query('UPDATE accounts SET banned = $reason WHERE id = $id').run({ id: accountId, reason });
     }
 
     // A new address, which needs confirming (a code sent to the old one
@@ -317,3 +324,19 @@ export class Store {
 }
 
 const now = (): string => new Date().toISOString();
+
+const ACCOUNT_COLUMNS = 'id, name, password_hash, email, email_confirmed, admin, banned';
+
+function readAccount(row: unknown): Account {
+    const r = record(row, 'account');
+    const nullable = (key: string): string | null => (r[key] === null ? null : field(r, key, 'account', string));
+    return {
+        id: field(r, 'id', 'account', integer),
+        name: field(r, 'name', 'account', string),
+        passwordHash: field(r, 'password_hash', 'account', string),
+        email: nullable('email'),
+        emailConfirmed: field(r, 'email_confirmed', 'account', oneOf([0, 1])) === 1,
+        admin: field(r, 'admin', 'account', oneOf([0, 1])) === 1,
+        banned: nullable('banned'),
+    };
+}

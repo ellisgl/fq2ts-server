@@ -144,6 +144,12 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
             return null;
         }
 
+        if (account.banned !== null) {
+            this.options.log(`${account.name} tried to come in, but is banned.`);
+            await this.pause(`{lightred}You are banned from the realm: ${escapeMarkup(account.banned)}`);
+            return null;
+        }
+
         return account.emailConfirmed || (await this.confirmEmail(account)) ? account : null;
     }
 

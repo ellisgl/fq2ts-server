@@ -105,6 +105,15 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: 'Admins, and bans',
+        up: (db) => {
+            db.run(`
+                ALTER TABLE accounts ADD COLUMN admin INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE accounts ADD COLUMN banned TEXT;
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

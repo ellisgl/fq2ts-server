@@ -9,6 +9,8 @@ import { startServer, type RunningServer, type ServerOptions } from '../src/serv
 import { TELNET, TELNET_GREETING } from '../src/telnet.ts';
 import { ScreenModel } from './screen-model.ts';
 import { hostKey, newHostKey } from '../src/ssh.ts';
+import { Store } from '../src/store.ts';
+import { runAdmin } from '../src/admin-cli.ts';
 import { tempDir } from '@fq2js/engine/testing';
 import { content, FIXTURE_DATA, type TestFlags } from '@fq2js/engine/fixture';
 import { MOD_API, readMod, type ModContext } from '@fq2js/engine/mods';
@@ -479,6 +481,56 @@ test('mods are added to the game, and listed in the log', async () => {
     const client = await telnet(server.telnetPort ?? 0);
     await newPlayer(client);
     await client.sees('MODDED');
+});
+
+describe('admins', () => {
+    test('an admin (made with bun run admin) kicks a player, and a ban keeps them out', async () => {
+        const dir = tempDir();
+        const database = join(dir, 'game.sqlite');
+        const store = new Store(database);
+        for (const name of ['Ann', 'Bob']) {
+            const id = store.createAccount(name, 'hash:secret1', `${name.toLowerCase()}@example.com`)?.id ?? 0;
+            store.confirmEmail(id);
+        }
+        store.close();
+        expect(runAdmin({ args: ['admin', 'Ann', '--data', dir], log: () => undefined })).toBe(0);
+
+        const server = start({ database });
+        const port = server.telnetPort ?? 0;
+        const logIn = async (name: string): Promise<Client> => {
+            const client = await telnet(port);
+            await client.sees('Log');
+            client.send('\r');
+            await client.sees('Name:');
+            client.send(`${name}\rsecret1\r`);
+            return client;
+        };
+        const ann = await logIn('Ann');
+        await ann.sees('A NEW GAME BEGINS');
+        ann.send(' ');
+        const bob = await logIn('Bob');
+        await bob.sees('A NEW GAME BEGINS');
+        bob.send(' ');
+        await bob.sees('HP 100/100');
+
+        ann.send('!');
+        await ann.sees('The admin menu');
+        ann.send('\r');
+        await ann.sees('Kick whom?');
+        ann.send('\r');
+        await ann.sees('Why is Bob being kicked?');
+        ann.send('Testing\r');
+        await bob.sees('You were removed from the realm by Ann: Testing');
+        await bob.closed();
+        expect(logs).toContain('Ann kicked Bob: Testing');
+        ann.send('x');
+
+        // Banned (from the command line, while the server runs), Bob can't
+        // come back.
+        expect(runAdmin({ args: ['ban', 'Bob', 'Go', 'away.', '--data', dir], log: () => undefined })).toBe(0);
+        const again = await logIn('Bob');
+        await again.sees('You are banned from the realm: Go away.');
+    });
 });
 
 describe('limits and shutting down', () => {

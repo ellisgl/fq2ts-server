@@ -7,7 +7,7 @@ import { tempDir } from '@fq2js/engine/testing';
 describe('Store', () => {
     test('accounts: names are unique in any case, and looked up in any case', () => {
         const store = new Store(':memory:');
-        expect(store.createAccount('Hero', 'hash', 'hero@example.com')).toEqual({ id: 1, name: 'Hero', passwordHash: 'hash', email: 'hero@example.com', emailConfirmed: false });
+        expect(store.createAccount('Hero', 'hash', 'hero@example.com')).toEqual({ id: 1, name: 'Hero', passwordHash: 'hash', email: 'hero@example.com', emailConfirmed: false, admin: false, banned: null });
         expect(store.createAccount('HERO', 'other', 'x@example.com')).toBeNull();
         expect(store.account('hero')?.name).toBe('Hero');
         expect(store.account('nobody')).toBeNull();
@@ -53,9 +53,22 @@ describe('Store', () => {
         old.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
         old.close();
         const store = new Store(path);
-        expect(store.account('old')).toEqual({ id: 1, name: 'Old', passwordHash: 'h', email: null, emailConfirmed: false });
+        expect(store.account('old')).toEqual({ id: 1, name: 'Old', passwordHash: 'h', email: null, emailConfirmed: false, admin: false, banned: null });
         store.close();
     });
+});
+
+test('admins and bans', () => {
+    const store = new Store(':memory:');
+    const id = store.createAccount('Hero', 'h', 'h@example.com')?.id ?? 0;
+    store.createAccount('Another', 'h', 'a@example.com');
+    store.setAdmin(id, true);
+    store.setBanned(id, 'Rude to the innkeeper.');
+    expect(store.account('hero')).toMatchObject({ admin: true, banned: 'Rude to the innkeeper.' });
+    store.setBanned(id, null);
+    store.setAdmin(id, false);
+    expect(store.account('hero')).toMatchObject({ admin: false, banned: null });
+    expect(store.accounts().map((a) => a.name)).toEqual(['Another', 'Hero']);
 });
 
 describe('one address, one account', () => {
