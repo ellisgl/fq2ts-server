@@ -106,6 +106,28 @@ export class Store {
         return (Array.isArray(rows) ? rows : []).map((row: unknown) => readAccount(row));
     }
 
+    // Removes the accounts made before `before` that never confirmed their
+    // email or played (so names aren't held by accounts no one finished
+    // making); their names.
+    public removeUnfinishedAccounts(before: Date): string[] {
+        const rows: unknown = this.db
+            .query('SELECT id, name FROM accounts WHERE email_confirmed = 0 AND last_login IS NULL AND admin = 0 AND created_at < $before AND id NOT IN (SELECT account_id FROM players)')
+            .all({ before: before.toISOString() });
+        const gone = (Array.isArray(rows) ? rows : []).map((row: unknown) => {
+            const r = record(row, 'account');
+            return { id: field(r, 'id', 'account', integer), name: field(r, 'name', 'account', string) };
+        });
+        this.db.transaction(() => {
+            for (const { id } of gone) {
+                for (const table of ['codes', 'letters', 'days']) {
+                    this.db.query(`DELETE FROM ${table} WHERE account_id = $id`).run({ id });
+                }
+                this.db.query('DELETE FROM accounts WHERE id = $id').run({ id });
+            }
+        })();
+        return gone.map(({ name }) => name);
+    }
+
     public setAdmin(accountId: number, admin: boolean): void {
         this.db.query('UPDATE accounts SET admin = $admin WHERE id = $id').run({ id: accountId, admin: admin ? 1 : 0 });
     }

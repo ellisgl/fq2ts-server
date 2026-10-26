@@ -71,6 +71,26 @@ test('admins and bans', () => {
     expect(store.accounts().map((a) => a.name)).toEqual(['Another', 'Hero']);
 });
 
+test('accounts never finished (no confirmed email, never played) are removed after a while, with their codes', () => {
+    const store = new Store(':memory:');
+    const unfinished = store.createAccount('Gone', 'h', 'g@example.com')?.id ?? 0;
+    store.saveCode(unfinished, 'confirm', 'x', 1);
+    const confirmed = store.createAccount('Kept', 'h', 'k@example.com')?.id ?? 0;
+    store.confirmEmail(confirmed);
+    const played = store.createAccount('Played', 'h', 'p@example.com')?.id ?? 0;
+    store.savePlayer(played, { gold: 1 });
+    const admin = store.createAccount('Boss', 'h', 'b@example.com')?.id ?? 0;
+    store.setAdmin(admin, true);
+    // (Made now: not old enough yet.)
+    expect(store.removeUnfinishedAccounts(new Date(Date.now() - 86_400_000))).toEqual([]);
+    expect(store.removeUnfinishedAccounts(new Date(Date.now() + 60_000))).toEqual(['Gone']);
+    expect(store.account('gone')).toBeNull();
+    expect(store.codeSentAt(unfinished, 'confirm')).toBeNull();
+    expect(store.accounts().map((a) => a.name)).toEqual(['Boss', 'Kept', 'Played']);
+    // The name is free again.
+    expect(store.createAccount('Gone', 'h', 'g@example.com')).not.toBeNull();
+});
+
 describe('one address, one account', () => {
     test('a confirmed address is in use (in any case) for every other account', () => {
         const store = new Store(':memory:');

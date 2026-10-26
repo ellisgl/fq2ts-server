@@ -123,7 +123,8 @@ async function browser(port: number, headers: Record<string, string> = {}): Prom
     ws.onclose = () => {
         isClosed = true;
     };
-    await until('the web socket to open', () => ws.readyState === WebSocket.OPEN);
+    // (Open, or turned away: then the server says why, and closes it.)
+    await until('the web socket to open', () => ws.readyState !== WebSocket.CONNECTING);
     return {
         ws,
         send: (data) => {
@@ -383,7 +384,16 @@ describe('the web', () => {
         const base = `http://127.0.0.1:${server.webPort ?? 0}`;
         const page = await fetch(`${base}/`);
         expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
-        expect(await page.text()).toContain('@xterm/xterm@5.5.0');
+        const html = await page.text();
+        expect(html).toContain('@xterm/xterm@5.5.0');
+        // Everything from elsewhere is checked against its hash.
+        const outside = html.match(/<(script|link)[^>]*(src|href)="https:[^>]*>/g) ?? [];
+        expect(outside).toHaveLength(2);
+        for (const tag of outside) {
+            expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/=]{64}"/);
+        }
+        expect(page.headers.get('content-security-policy')).toBe("frame-ancestors 'none'");
+        expect(page.headers.get('x-content-type-options')).toBe('nosniff');
         expect((await fetch(`${base}/nope`)).status).toBe(404);
         expect((await fetch(`${base}/ws`)).status).toBe(400);
     });
@@ -469,6 +479,31 @@ describe('SSH', () => {
         const file = join(tempDir(), 'bad_key');
         writeFileSync(file, short);
         expect(() => hostKey(file)).toThrow(`The SSH host key in ${file} can't be read`);
+    });
+
+    test('a client gets one session: more are turned down', async () => {
+        const server = start({ ssh: { port: 0, hostKeyFile: join(tempDir(), 'host_key') } });
+        const client = new SshClient();
+        await new Promise<void>((resolve, reject) => {
+            client.on('ready', () => {
+                resolve();
+            }).on('error', reject).connect({ host: '127.0.0.1', port: server.sshPort ?? 0, username: 'x' });
+        });
+        // (A second session isn't even opened, rather than opened and its
+        // request refused.)
+        const second = (): Promise<string> => new Promise((resolve) => {
+            client.shell({ cols: 80, rows: 25, term: 'xterm' }, (error) => {
+                resolve(error?.message ?? 'opened');
+            });
+        });
+        const first = await new Promise<boolean>((resolve) => {
+            client.shell({ cols: 80, rows: 25, term: 'xterm' }, (error) => {
+                resolve(error === undefined);
+            });
+        });
+        expect(first).toBe(true);
+        expect(await second()).toContain('open failure');
+        client.end();
     });
 
     test('SSH is off unless asked for', () => {

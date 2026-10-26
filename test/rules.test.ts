@@ -21,10 +21,14 @@ test('every rule has a command line option, and the defaults are as they were', 
         mailbox: 50,
         newsDays: 7,
         emailsPerVisit: 5,
+        unfinishedAccountDays: 7,
         connectionsPerMinute: 20,
         loginFailuresPerAddress: 10,
         loginFailuresPerAccount: 20,
         lockoutMinutes: 15,
+        signUpsPerAddressPerHour: 5,
+        emailsPerAddressPerHour: 10,
+        emailsPerRecipientPerHour: 3,
     });
 });
 

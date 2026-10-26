@@ -119,24 +119,34 @@ export function attack<F extends FlagRecord, W extends WorldRecord = WorldRecord
             victory: `{green}You beat {lightred}${name}{green}!  You take {yellow}$${monster.gold}{green} and get {white}${monster.exp}{green} Experience.`,
         });
 
+        // What the fight comes to is for the target's game as it is now: they
+        // may have left (and even come back, with a new game) meanwhile.
+        const theirs = realm.gameOf(target.accountId);
+        const current = theirs?.inProgress ? theirs.playing : null;
         const at = now();
         if (result === 'won') {
-            // (They may have spent some meanwhile: they can only lose what
-            // they have.)
-            const taken = Math.min(monster.gold, them.gold);
+            // (They can only lose what they have, if they're still here.)
+            const taken = current ? Math.min(monster.gold, current.gold) : 0;
             g.gold -= monster.gold - taken;
-            them.gold -= taken;
-            them.hp = 1;
+            if (current) {
+                current.gold -= taken;
+                current.hp = 1;
+            }
             realm.toMember(target.accountId, `{lightred}${escapeMarkup(me.name)} beat you, and took $${taken}.`);
             store.addNews(`{lightred}${escapeMarkup(me.name)} beat ${name} in a fight.`, at);
         } else if (result === 'lost') {
-            them.gold += lost;
+            if (current) {
+                current.gold += lost;
+            }
             realm.toMember(target.accountId, `{lightgreen}You beat off ${escapeMarkup(me.name)}'s attack, and took $${lost}.`);
         } else {
             realm.toMember(target.accountId, `{yellow}${escapeMarkup(me.name)} attacked you, then ran away.`);
         }
 
-        store.savePlayer(target.accountId, them);
-        target.game.othersChanged();
+        if (theirs && current) {
+            store.savePlayer(target.accountId, current);
+            // (Their gold and hitpoints are on their status line.)
+            theirs.refresh();
+        }
     };
 }

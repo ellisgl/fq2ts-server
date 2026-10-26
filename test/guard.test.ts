@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { Guard, isLocal, normalAddress, webAddress } from '../src/guard.ts';
+import { DEFAULT_GUARD, Guard, isLocal, normalAddress, webAddress } from '../src/guard.ts';
 
 const MINUTE = 60_000;
 
@@ -29,7 +29,7 @@ describe('addresses', () => {
 describe('Guard', () => {
     function guard(rules = {}) {
         let now = 0;
-        const g = new Guard({ rules: { connectionsPerMinute: 3, loginFailuresPerAddress: 3, loginFailuresPerAccount: 5, lockoutMinutes: 10, ...rules }, now: () => now });
+        const g = new Guard({ rules: { ...DEFAULT_GUARD, connectionsPerMinute: 3, loginFailuresPerAddress: 3, loginFailuresPerAccount: 5, lockoutMinutes: 10, ...rules }, now: () => now });
         return { g, later: (ms: number) => (now += ms) };
     }
 
@@ -62,14 +62,35 @@ describe('Guard', () => {
         expect(g.loginShut('f', 'bob')).toBeNull();
     });
 
+    test('an address can make so many accounts an hour', () => {
+        const { g, later } = guard({ signUpsPerAddressPerHour: 2 });
+        g.signedUp('a');
+        expect(g.maySignUp('a')).toBe(true);
+        g.signedUp('a');
+        expect([g.maySignUp('a'), g.maySignUp('b')]).toEqual([false, true]);
+        later(60 * MINUTE);
+        expect(g.maySignUp('a')).toBe(true);
+    });
+
+    test('emails: so many from an address, and so many to one recipient (from anywhere), an hour', () => {
+        const { g, later } = guard({ emailsPerAddressPerHour: 3, emailsPerRecipientPerHour: 2 });
+        expect([g.email('a', 'x@example.com'), g.email('b', 'X@example.com'), g.email('c', 'x@example.com')]).toEqual([true, true, false]);
+        // (a has sent 1 of its 3.)
+        expect([g.email('a', 'y@example.com'), g.email('a', 'z@example.com'), g.email('a', 'w@example.com')]).toEqual([true, true, false]);
+        later(60 * MINUTE);
+        expect(g.email('c', 'x@example.com')).toBe(true);
+    });
+
     test("what's old is let go, so nothing piles up", () => {
         const { g, later } = guard();
         for (let i = 0; i < 100; i++) {
             g.connect(`10.0.0.${i}`);
             g.failed(`10.0.0.${i}`, `player${i}`);
         }
-        expect(g.size).toBe(300);
-        later(10 * MINUTE);
+        g.signedUp('10.0.0.1');
+        g.email('10.0.0.1', 'x@example.com');
+        expect(g.size).toBe(303);
+        later(60 * MINUTE);
         g.prune();
         expect(g.size).toBe(0);
     });

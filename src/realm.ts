@@ -115,8 +115,8 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         return this.members.get(accountId)?.game ?? null;
     }
 
-    // The others next to (or on) a member's place, out on the map (not in
-    // the middle of a scene of their own), by name.
+    // The others next to (or on) a member's place, out on the map waiting
+    // for a key (not in a scene, menu or fight of their own), by name.
     public near(accountId: number): { accountId: number; name: string; game: Game<F, W> }[] {
         const mine = this.members.get(accountId)?.place;
         if (!mine) {
@@ -125,7 +125,7 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
         const near: { accountId: number; name: string; game: Game<F, W> }[] = [];
         for (const [id, { name, game, place }] of this.members) {
-            if (id !== accountId && game?.showingMap && place?.screen === mine.screen && Math.abs(place.x - mine.x) <= 1 && Math.abs(place.y - mine.y) <= 1) {
+            if (id !== accountId && game?.waiting && place?.screen === mine.screen && Math.abs(place.x - mine.x) <= 1 && Math.abs(place.y - mine.y) <= 1) {
                 near.push({ accountId: id, name, game });
             }
         }
@@ -141,10 +141,10 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     }
 
     // Something everyone may see has changed (the world's state): everyone
-    // redraws.
+    // redraws their whole screen.
     public everyoneChanged(): void {
         for (const { game } of this.members.values()) {
-            game?.othersChanged();
+            game?.refresh();
         }
     }
 

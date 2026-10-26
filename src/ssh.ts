@@ -76,6 +76,9 @@ export function newHostKey(generate: () => string = () => utils.generateKeyPairS
 export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, failed }: SshOptions): SshServer {
     const server = new Server({ hostKeys: [hostKey(hostKeyFile)] }, (client, info) => {
         let shell = false;
+        // One session (and so one game) per connection: more would each be
+        // kept until the client goes.
+        let session = false;
         let size = { columns: 80, rows: 25 };
         const timer = setTimeout(() => {
             if (!shell) {
@@ -86,9 +89,14 @@ export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, f
         client.on('authentication', (context) => {
             context.accept();
         });
-        client.on('session', (accept) => {
-            const session = accept();
-            session.on('pty', (ok, _reject, info) => {
+        client.on('session', (accept, reject) => {
+            if (session) {
+                reject();
+                return;
+            }
+            session = true;
+            const channel = accept();
+            channel.on('pty', (ok, _reject, info) => {
                 // 0 is "don't know" (no terminal at the other end): 80x25.
                 if (info.cols > 0 && info.rows > 0) {
                     size = { columns: info.cols, rows: info.rows };
@@ -96,7 +104,7 @@ export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, f
 
                 answer(ok);
             });
-            session.on('shell', (ok, reject) => {
+            channel.on('shell', (ok, reject) => {
                 // One game per connection.
                 if (shell) {
                     answer(reject);
@@ -127,7 +135,7 @@ export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, f
                     hangUp,
                     info.ip,
                 );
-                session.on('window-change', (done, _reject, info) => {
+                channel.on('window-change', (done, _reject, info) => {
                     if (info.cols > 0 && info.rows > 0) {
                         player?.resized(info.cols, info.rows);
                     }

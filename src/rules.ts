@@ -27,6 +27,9 @@ export interface Rules extends GuardRules {
     newsDays: number;
     // Emails (codes) one connection can ask for.
     emailsPerVisit: number;
+    // Days before an account that never confirmed its email (or played) is
+    // removed, freeing its name.
+    unfinishedAccountDays: number;
 }
 
 export const DEFAULT_RULES: Rules = {
@@ -38,6 +41,7 @@ export const DEFAULT_RULES: Rules = {
     mailbox: MAILBOX,
     newsDays: NEWS_DAYS,
     emailsPerVisit: MAX_EMAILS,
+    unfinishedAccountDays: 7,
     ...DEFAULT_GUARD,
 };
 
@@ -60,8 +64,12 @@ export const RULE_OPTIONS = [
     { rule: 'mailbox', option: 'mailbox', help: 'letters kept for each player (the oldest go)', min: 1 },
     { rule: 'newsDays', option: 'news-days', help: 'days the news is kept', min: 1 },
     { rule: 'emailsPerVisit', option: 'emails-per-visit', help: 'emails (codes) a connection can ask for', min: 1 },
+    { rule: 'unfinishedAccountDays', option: 'unfinished-account-days', help: 'days before an account never confirmed is removed', min: 1 },
     { rule: 'connectionsPerMinute', option: 'connections-per-minute', help: 'connections an address can make a minute', min: 1 },
     { rule: 'loginFailuresPerAddress', option: 'login-failures-per-address', help: 'wrong passwords from an address before logins from it stop', min: 1 },
     { rule: 'loginFailuresPerAccount', option: 'login-failures-per-account', help: 'wrong passwords for an account before logins to it stop', min: 1 },
     { rule: 'lockoutMinutes', option: 'lockout-minutes', help: '...for how long', min: 1 },
+    { rule: 'signUpsPerAddressPerHour', option: 'sign-ups-per-address', help: 'accounts an address can make an hour', min: 1 },
+    { rule: 'emailsPerAddressPerHour', option: 'emails-per-address', help: 'emails (codes) an address can have sent an hour', min: 1 },
+    { rule: 'emailsPerRecipientPerHour', option: 'emails-per-recipient', help: 'emails one address can be sent an hour', min: 1 },
 ] as const satisfies readonly RuleOption[];

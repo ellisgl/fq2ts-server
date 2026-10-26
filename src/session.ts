@@ -19,6 +19,9 @@ import type { WorldRecord } from '@fq2js/engine/shared';
 // Wrong passwords before the connection is closed.
 const MAX_TRIES = 3;
 export const MIN_PASSWORD = 6;
+// The longest a password can be typed, and a name (as validName allows).
+export const MAX_PASSWORD = 64;
+const MAX_NAME = 20;
 // How soon another code can be sent for the same thing.
 export const RESEND_WAIT = 60_000;
 // Emails one connection can ask for (so it can't be used to send lots).
@@ -35,6 +38,11 @@ export interface SessionOptions<F extends FlagRecord, W extends WorldRecord = Wo
     // passwords), or null; and a wrong name or password, to count.
     loginShut?(name: string): string | null;
     loginFailed?(name: string): void;
+    // Whether this connection's address can make an account now, and that
+    // it has; whether an email can go to this recipient now.
+    maySignUp?(): boolean;
+    signedUp?(): void;
+    mayEmail?(to: string): boolean;
     term: Terminal;
     store: Store;
     content: Content<F, W>;
@@ -133,12 +141,12 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
     // ---- Accounts
 
     private async logIn(): Promise<Account | null> {
-        const name = await this.ask('Name:');
+        const name = await this.ask('Name:', { max: MAX_NAME });
         if (name === null) {
             return null;
         }
 
-        const password = await this.ask('Password:', { mask: true, row: 2 });
+        const password = await this.ask('Password:', { mask: true, row: 2, max: MAX_PASSWORD });
         if (password === null) {
             return null;
         }
@@ -182,9 +190,14 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
 
     private async signUp(): Promise<Account | null> {
         const { store } = this.options;
+        if (this.options.maySignUp?.() === false) {
+            await this.pause('{yellow}Too many new accounts from your address. Please try later.');
+            return null;
+        }
+
         let name: string | null = null;
         while (name === null) {
-            const answer = await this.ask('Your name:');
+            const answer = await this.ask('Your name:', { max: MAX_NAME });
             if (answer === null) {
                 return null;
             }
@@ -216,6 +229,7 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
             return null;
         }
 
+        this.options.signedUp?.();
         this.options.log(`New account: ${account.name}`);
         return (await this.confirmEmail(account)) ? account : null;
     }
@@ -223,12 +237,12 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
     // A new password, typed twice; null on Escape.
     private async askNewPassword(row: number): Promise<string | null> {
         for (;;) {
-            const first = await this.ask('Password:', { mask: true, row });
+            const first = await this.ask('Password:', { mask: true, row, max: MAX_PASSWORD });
             if (first === null) {
                 return null;
             }
 
-            const again = await this.ask('Once more:', { mask: true, row: row + 2 });
+            const again = await this.ask('Once more:', { mask: true, row: row + 2, max: MAX_PASSWORD });
             if (again === null) {
                 return null;
             }
@@ -304,7 +318,7 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
     // the code sent to it. The old address is told.
     private async changeEmail(account: Account): Promise<void> {
         const { store, mailer, log } = this.options;
-        const password = await this.ask('Password:', { mask: true, note: '{white}To change your email address.' });
+        const password = await this.ask('Password:', { mask: true, max: MAX_PASSWORD, note: '{white}To change your email address.' });
         if (password === null) {
             return;
         }
@@ -380,7 +394,7 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
 
     private async resetPassword(): Promise<void> {
         const { store } = this.options;
-        const name = await this.ask('Name:', { note: "{white}We'll email you a code." });
+        const name = await this.ask('Name:', { max: MAX_NAME, note: "{white}We'll email you a code." });
         if (name === null) {
             return;
         }
@@ -418,6 +432,12 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
 
         if (this.emailsSent >= (this.options.emailsPerVisit ?? MAX_EMAILS)) {
             await this.pause("{yellow}That's all the emails for this visit.");
+            return false;
+        }
+
+        if (this.options.mayEmail?.(email) === false) {
+            this.options.log(`Didn't email ${account.name}: too many emails from their address, or to that one.`);
+            await this.pause('{yellow}Too many emails just now. Please try later.');
             return false;
         }
 

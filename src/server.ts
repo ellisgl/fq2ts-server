@@ -202,29 +202,49 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     };
     const now = options.now ?? Date.now;
     const days = new Days<F, W>({ store: shared.store, content: shared.content, realm, now });
+    // Accounts no one finished making give their names back (now, and as
+    // each day turns).
+    let tidiedOn = '';
+    const tidy = (): void => {
+        if (tidiedOn === days.today) {
+            return;
+        }
+        tidiedOn = days.today;
+        const gone = shared.store.removeUnfinishedAccounts(new Date(now() - rules.unfinishedAccountDays * 86_400_000));
+        if (gone.length) {
+            log(`Removed ${gone.length} account${gone.length === 1 ? '' : 's'} never confirmed: ${gone.join(', ')}`);
+        }
+    };
+    tidy();
     const worldStore = new ServerWorld(shared.store, shared.content.world, () => {
         realm.everyoneChanged();
     }, log);
 
-    // Starts the session for a new connection (once the terminal size is known).
-    const begin = (connection: Connection<F, W>): void => {
-        const { term } = connection;
-        if (connection.isClosed || connection.session) {
-            return;
-        }
-
+    // A new connection, as it opens: true if it's turned away (its address
+    // is banned, or has connected too often), and closed.
+    const turnedAway = (connection: Connection<F, W>): boolean => {
         const banned = shared.store.addressBan(connection.address);
         if (banned !== null) {
             log(`Turned away ${connection.address}: it's banned.`);
             connection.say(`This address is banned from the realm: ${banned}`);
             connection.close();
-            return;
+            return true;
         }
 
         if (!guard.connect(connection.address)) {
             log(`Turned away ${connection.address}: too many connections.`);
             connection.say('Too many connections from your address. Please wait a minute.');
             connection.close();
+            return true;
+        }
+
+        return false;
+    };
+
+    // Starts the session for a new connection (once the terminal size is known).
+    const begin = (connection: Connection<F, W>): void => {
+        const { term } = connection;
+        if (connection.isClosed || connection.session) {
             return;
         }
 
@@ -325,6 +345,11 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             loginFailed: (name) => {
                 guard.failed(connection.address, name);
             },
+            maySignUp: () => guard.maySignUp(connection.address),
+            signedUp: () => {
+                guard.signedUp(connection.address);
+            },
+            mayEmail: (to) => guard.email(connection.address, to),
             ...(options.hashPassword ? { hashPassword: options.hashPassword } : {}),
             ...(options.verifyPassword ? { verifyPassword: options.verifyPassword } : {}),
         });
@@ -397,6 +422,9 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                     bySocket.set(socket, { connection, parser: new TelnetParser(), started: false, pending: [], pendingBytes: 0 });
                     connections.add(connection);
                     socket.write(TELNET_GREETING);
+                    if (turnedAway(connection)) {
+                        return;
+                    }
                     setTimeout(() => {
                         start(socket);
                     }, WINDOW_SIZE_WAIT);
@@ -472,7 +500,17 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                 }
 
                 if (url.pathname === '/') {
-                    return new Response(PAGE, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+                    return new Response(PAGE, {
+                        headers: {
+                            'content-type': 'text/html; charset=utf-8',
+                            // Not in anyone else's frame (where clicks and
+                            // keys could be tricked out of a player).
+                            'content-security-policy': "frame-ancestors 'none'",
+                            'x-frame-options': 'DENY',
+                            'x-content-type-options': 'nosniff',
+                            'referrer-policy': 'no-referrer',
+                        },
+                    });
                 }
 
                 return new Response('Not found', { status: 404 });
@@ -494,6 +532,9 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                     );
                     ws.data.connection = connection;
                     connections.add(connection);
+                    if (turnedAway(connection)) {
+                        return;
+                    }
                     // The page says its size straight away; if it doesn't,
                     // start anyway (at 80x25), as telnet does.
                     setTimeout(() => {
@@ -544,7 +585,9 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                 const connection = connect(send, hangUp, address);
                 connection.io.resized(columns, rows);
                 connections.add(connection);
-                begin(connection);
+                if (!turnedAway(connection)) {
+                    begin(connection);
+                }
                 return {
                     typed: (text) => {
                         connection.io.typed(text);
@@ -572,6 +615,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     // Idle players go, and at midnight a new day dawns.
     const idleTimer = setInterval(() => {
         days.check();
+        tidy();
         guard.prune();
         const cutoff = Date.now() - idleMinutes * 60_000;
         for (const connection of connections) {

@@ -1,6 +1,8 @@
 // Keeping the door: how many connections an address can make in a minute,
-// and how many wrong passwords an address, or an account, can have before
-// logging in is shut for a while. This is what stops guessing passwords by
+// how many wrong passwords an address, or an account, can have before
+// logging in is shut for a while, and how many accounts an address can make
+// and emails it can have sent (to one recipient, too) in an hour, so that
+// no one can use the server to fill a stranger's inbox. This is what stops guessing passwords by
 // reconnecting (three wrong ones close a connection, but a new one is easy
 // to make). Everything is kept in memory and let go when it's old.
 
@@ -37,9 +39,24 @@ export interface GuardRules {
     loginFailuresPerAddress: number;
     loginFailuresPerAccount: number;
     lockoutMinutes: number;
+    // Accounts an address can make, emails it can have sent, and emails one
+    // recipient can be sent, in an hour.
+    signUpsPerAddressPerHour: number;
+    emailsPerAddressPerHour: number;
+    emailsPerRecipientPerHour: number;
 }
 
-export const DEFAULT_GUARD: GuardRules = { connectionsPerMinute: 20, loginFailuresPerAddress: 10, loginFailuresPerAccount: 20, lockoutMinutes: 15 };
+export const DEFAULT_GUARD: GuardRules = {
+    connectionsPerMinute: 20,
+    loginFailuresPerAddress: 10,
+    loginFailuresPerAccount: 20,
+    lockoutMinutes: 15,
+    signUpsPerAddressPerHour: 5,
+    emailsPerAddressPerHour: 10,
+    emailsPerRecipientPerHour: 3,
+};
+
+const HOUR = 3_600_000;
 
 export class Guard {
     private readonly rules: GuardRules;
@@ -49,6 +66,9 @@ export class Guard {
     private readonly connections = new Map<string, number[]>();
     private readonly addressFailures = new Map<string, number[]>();
     private readonly accountFailures = new Map<string, number[]>();
+    private readonly signUps = new Map<string, number[]>();
+    private readonly emailsFrom = new Map<string, number[]>();
+    private readonly emailsTo = new Map<string, number[]>();
 
     public constructor({ rules = DEFAULT_GUARD, now = Date.now }: { rules?: GuardRules; now?(): number } = {}) {
         this.rules = rules;
@@ -86,10 +106,40 @@ export class Guard {
         this.recent(this.accountFailures, name.toLowerCase(), window).push(this.now());
     }
 
+    // Whether this address can make another account this hour.
+    public maySignUp(address: string): boolean {
+        return this.recent(this.signUps, address, HOUR).length < this.rules.signUpsPerAddressPerHour;
+    }
+
+    public signedUp(address: string): void {
+        this.recent(this.signUps, address, HOUR).push(this.now());
+    }
+
+    // Whether an email can be sent to `to` for this address this hour (if
+    // so, it's counted).
+    public email(address: string, to: string): boolean {
+        const from = this.recent(this.emailsFrom, address, HOUR);
+        const recipient = this.recent(this.emailsTo, to.toLowerCase(), HOUR);
+        if (from.length >= this.rules.emailsPerAddressPerHour || recipient.length >= this.rules.emailsPerRecipientPerHour) {
+            return false;
+        }
+        from.push(this.now());
+        recipient.push(this.now());
+        return true;
+    }
+
     // Lets go of what's too old to count (called now and then).
     public prune(): void {
         const window = this.rules.lockoutMinutes * 60_000;
-        for (const [times, age] of [[this.connections, 60_000], [this.addressFailures, window], [this.accountFailures, window]] as const) {
+        const kept = [
+            [this.connections, 60_000],
+            [this.addressFailures, window],
+            [this.accountFailures, window],
+            [this.signUps, HOUR],
+            [this.emailsFrom, HOUR],
+            [this.emailsTo, HOUR],
+        ] as const;
+        for (const [times, age] of kept) {
             for (const key of [...times.keys()]) {
                 if (!this.recent(times, key, age).length) {
                     times.delete(key);
@@ -100,7 +150,7 @@ export class Guard {
 
     // How many things are being kept (for tests: they don't pile up).
     public get size(): number {
-        return this.connections.size + this.addressFailures.size + this.accountFailures.size;
+        return [this.connections, this.addressFailures, this.accountFailures, this.signUps, this.emailsFrom, this.emailsTo].reduce((n, m) => n + m.size, 0);
     }
 
     // The times under `key` within the last `age` milliseconds (older ones

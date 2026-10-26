@@ -109,7 +109,7 @@ describe('fights between players', () => {
         const days = new Days({ store, content, realm, now: () => MIDDAY });
         const bobs = makeGame({ player: bob });
         // (Bob is out on the map, waiting.)
-        Object.defineProperty(bobs.game, 'showingMap', { get: () => true });
+        Object.defineProperty(bobs.game, 'waiting', { get: () => true });
         const heard: string[] = [];
         spyOn(bobs.game, 'notify').mockImplementation((text) => {
             heard.push(text);
@@ -120,7 +120,7 @@ describe('fights between players', () => {
         realm.claim(1, 'Ann');
         realm.moved(1, { screen: 1, x: 10, y: 10 });
         const h = attack({ realm, store, days, world, items: itemCatalogue, me: { id: 1, name: 'Ann' }, now: () => MIDDAY });
-        return { store, days, h, bob: bobs.game, heard };
+        return { store, days, h, bob: bobs.game, heard, realm };
     }
 
     test('winning: Ann takes half of Bob\'s gold and some experience; he is left on 1 hp, told, and saved; the news has it', async () => {
@@ -174,6 +174,29 @@ describe('fights between players', () => {
             days.fought(1);
         }
         expect(await said(h)).toContain("You've fought enough for one day.");
+    });
+
+    test("if Bob leaves during the fight, Ann takes nothing (and his save isn't touched)", async () => {
+        random = spyOn(Math, 'random').mockReturnValue(0.99);
+        const { store, h, realm } = arena({ bob: newPlayer({ gold: 80, hp: 5 }) });
+        store.savePlayer(2, newPlayer({ gold: 999 }));
+        const { g, term } = scriptContext({
+            player: newPlayer({ gold: 10 }),
+            steps: [
+                () => {
+                    // (Bob leaves as Ann swings.)
+                    realm.release(2);
+                    return 'enter';
+                },
+                'enter',
+                'x',
+                'x',
+            ],
+        });
+        await h(g);
+        expect(term.remaining).toBe(0);
+        expect(g.gold).toBe(10);
+        expect(store.loadPlayer(2)).toMatchObject({ gold: 999 });
     });
 
     test('choosing no one fights no one', async () => {
