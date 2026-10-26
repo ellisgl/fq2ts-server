@@ -9,8 +9,26 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@fq2ts/engine": "workspace:*",
+    "@fq2ts/engine": "github:ellisgl/fq2ts-engine#v0.1.0",
+    "@types/nodemailer": "^8.0.2",
+    "@types/ssh2": "^1.15.6",
     "nodemailer": "^8.0.11",
     "ssh2": "1.17.0"
+  },
+  "scripts": {
+    "test": "bun test",
+    "coverage": "bun test --coverage",
+    "check": "tsc && eslint . && bun test"
+  },
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "^2.9.0",
+    "@types/bun": "^1.4.4",
+    "eslint": "^10.13.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.0"
+  },
+  "trustedDependencies": [],
+  "patchedDependencies": {
+    "ssh2@1.17.0": "patches/ssh2@1.17.0.patch"
   }
 }
