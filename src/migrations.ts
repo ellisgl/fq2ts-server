@@ -86,6 +86,12 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: "The world's state, shared by everyone",
+        up: (db) => {
+            db.run('CREATE TABLE world (name TEXT PRIMARY KEY, value TEXT NOT NULL)');
+        },
+    },
 ];
 
 const version = (db: Database): number => {

@@ -14,6 +14,7 @@ import type { ItemCatalogue } from '@fq2js/engine/items';
 import type { Config, Content, Game } from '@fq2js/engine/game';
 import { changedEmail, codeEmail, MAX_EMAIL, validEmail, type CodePurpose, type Mailer } from './mail.ts';
 import { CODE_MINUTES, validName, type Account, type Store } from './store.ts';
+import type { WorldRecord } from '@fq2js/engine/shared';
 
 // Wrong passwords before the connection is closed.
 const MAX_TRIES = 3;
@@ -24,14 +25,14 @@ export const RESEND_WAIT = 60_000;
 export const MAX_EMAILS = 5;
 const CODE_LENGTH = 6;
 
-export interface SessionOptions<F extends FlagRecord> {
+export interface SessionOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     term: Terminal;
     store: Store;
-    content: Content<F>;
+    content: Content<F, W>;
     items: ItemCatalogue;
     config: Config;
     // Makes this connection's game, which saves the player through `autosave`.
-    makeGame(account: Account, autosave: (player: Player<F>) => void): Game<F>;
+    makeGame(account: Account, autosave: (player: Player<F>) => void): Game<F, W>;
     // Marks an account as playing; false if it already is (elsewhere).
     claim(account: Account): boolean;
     release(accountId: number): void;
@@ -58,15 +59,15 @@ const hashCode = (code: string): string => new Bun.CryptoHasher('sha256').update
 // The login box sits in the title screen's menu box.
 const BOX = { x: 33, top: 16, width: 17, bottom: 23 };
 
-export class Session<F extends FlagRecord> {
-    private readonly options: SessionOptions<F>;
+export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
+    private readonly options: SessionOptions<F, W>;
     private readonly term: Terminal;
     // The player being played, to save if the connection goes.
-    private playing: { account: Account; game: Game<F> } | null = null;
+    private playing: { account: Account; game: Game<F, W> } | null = null;
     private wrongPasswords = 0;
     private emailsSent = 0;
 
-    public constructor(options: SessionOptions<F>) {
+    public constructor(options: SessionOptions<F, W>) {
         this.options = options;
         this.term = options.term;
     }

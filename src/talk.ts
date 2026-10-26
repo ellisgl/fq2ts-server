@@ -9,6 +9,7 @@ import type { Script } from '@fq2js/engine/script';
 import { escapeMarkup } from '@fq2js/engine/text';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
+import type { WorldRecord } from '@fq2js/engine/shared';
 
 // The longest thing that can be said, and a letter's lines.
 export const SAY_LENGTH = 60;
@@ -23,8 +24,8 @@ export interface Speaker {
     name: string;
 }
 
-interface Talk<F extends FlagRecord> {
-    realm: Realm<F>;
+interface Talk<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
+    realm: Realm<F, W>;
     store: Store;
     me: Speaker;
     now?(): number;
@@ -33,7 +34,7 @@ interface Talk<F extends FlagRecord> {
 const NOT_SO_FAST = '{yellow}Not so fast! Wait a moment before saying more.';
 
 // T: to everyone on this screen.
-export function talk<F extends FlagRecord>({ realm, me }: Talk<F>): Script<F> {
+export function talk<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, me }: Talk<F, W>): Script<F, W> {
     return async (g) => {
         const said = (await g.askLine('Say:', SAY_LENGTH))?.trim();
         if (!said) {
@@ -52,7 +53,7 @@ export function talk<F extends FlagRecord>({ realm, me }: Talk<F>): Script<F> {
 }
 
 // Y: to everyone in the realm.
-export function yell<F extends FlagRecord>({ realm, me }: Talk<F>): Script<F> {
+export function yell<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, me }: Talk<F, W>): Script<F, W> {
     return async (g) => {
         const said = (await g.askLine('Yell:', SAY_LENGTH))?.trim();
         if (!said) {
@@ -71,7 +72,7 @@ export function yell<F extends FlagRecord>({ realm, me }: Talk<F>): Script<F> {
 }
 
 // W: the player's letters, and writing one to another player.
-export function mail<F extends FlagRecord>({ realm, store, me, now = Date.now }: Talk<F>): Script<F> {
+export function mail<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, store, me, now = Date.now }: Talk<F, W>): Script<F, W> {
     let sent = 0;
     return async (g) => {
         const letters = store.letters(me.id);
@@ -147,7 +148,7 @@ export function mail<F extends FlagRecord>({ realm, store, me, now = Date.now }:
 }
 
 // D: the news, today's and yesterday's.
-export function news<F extends FlagRecord>({ store, now = Date.now }: Talk<F>): Script<F> {
+export function news<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ store, now = Date.now }: Talk<F, W>): Script<F, W> {
     return async (g) => {
         const today = startOfDay(now());
         const yesterday = today - 86_400_000;

@@ -193,6 +193,23 @@ export class Store {
         });
     }
 
+    // ---- The world's state (as JSON, unchecked: the game checks it)
+
+    public worldValues(): Record<string, unknown> {
+        const rows: unknown = this.db.query('SELECT name, value FROM world').all();
+        const values: Record<string, unknown> = {};
+        for (const row of Array.isArray(rows) ? rows : []) {
+            const r = record(row, 'world');
+            const value: unknown = JSON.parse(field(r, 'value', 'world', string));
+            values[field(r, 'name', 'world', string)] = value;
+        }
+        return values;
+    }
+
+    public setWorldValue(name: string, value: unknown): void {
+        this.db.query('INSERT INTO world (name, value) VALUES ($name, $value) ON CONFLICT(name) DO UPDATE SET value = $value').run({ name, value: JSON.stringify(value) });
+    }
+
     // ---- Codes sent by email (only their hashes are kept)
 
     // A new code for this, in place of any before it.

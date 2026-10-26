@@ -8,11 +8,12 @@ import { escapeMarkup } from '@fq2js/engine/text';
 import type { World } from '@fq2js/engine/world';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
+import type { WorldRecord } from '@fq2js/engine/shared';
 
 const NAME_WIDTH = 22;
 
 // P: who's in the realm, and where.
-export function whoIsOnline<F extends FlagRecord>(realm: Realm<F>, world: World, accountId: number): Script<F> {
+export function whoIsOnline<F extends FlagRecord, W extends WorldRecord = WorldRecord>(realm: Realm<F, W>, world: World, accountId: number): Script<F, W> {
     return async (g) => {
         const lines = realm.online().map(({ accountId: id, name, place }) => {
             const where = place ? world.name(place.screen) || `screen ${place.screen}` : 'arriving';
@@ -23,7 +24,7 @@ export function whoIsOnline<F extends FlagRecord>(realm: Realm<F>, world: World,
 }
 
 // L: every player there is (online or not), by experience.
-export function rankings<F extends FlagRecord>(realm: Realm<F>, store: Store, start: Player<F>, items: ItemCatalogue): Script<F> {
+export function rankings<F extends FlagRecord, W extends WorldRecord = WorldRecord>(realm: Realm<F, W>, store: Store, start: Player<F>, items: ItemCatalogue): Script<F, W> {
     return async (g) => {
         const online = new Set(realm.online().map(({ name }) => name.toLowerCase()));
         const players: { name: string; exp: number; gold: number }[] = [];

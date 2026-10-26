@@ -14,9 +14,10 @@ import type { FlagRecord } from '@fq2js/engine/player';
 import { loadMods, type LoadedMod } from '@fq2js/engine/mods';
 import { startServer, type RunningServer } from './server.ts';
 import { smtpMailer, type Mailer } from './mail.ts';
+import type { WorldRecord } from '@fq2js/engine/shared';
 
-export interface ServerCli<F extends FlagRecord> {
-    content: Content<F>;
+export interface ServerCli<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
+    content: Content<F, W>;
     // The game's data folder (config.json, items.json, monsters.json, maps/).
     gameData: string;
     // The game's name, for players whose terminal won't do.
@@ -61,7 +62,7 @@ ${prefix}TELNET_PORT, and so on. Options given here win.
   -h, --help            show this help`;
 
 // Runs the server until it's stopped (Ctrl-C), or exits if it can't start.
-export async function runServer<F extends FlagRecord>({ content, gameData, name, database = 'game.sqlite', args = process.argv.slice(2), envPrefix = 'FQ2_' }: ServerCli<F>): Promise<void> {
+export async function runServer<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ content, gameData, name, database = 'game.sqlite', args = process.argv.slice(2), envPrefix = 'FQ2_' }: ServerCli<F, W>): Promise<void> {
     const { values } = parseArgs({
         args: [...args],
         options: {

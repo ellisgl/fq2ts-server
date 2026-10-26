@@ -21,15 +21,17 @@ import { RemoteIO } from './remote.ts';
 import { logMailer, type Mailer } from './mail.ts';
 import { Session } from './session.ts';
 import { Realm } from './realm.ts';
+import { ServerWorld } from './world-state.ts';
 import { rankings, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2js/engine/text';
 import { listenSsh, type SshServer } from './ssh.ts';
 import { Store } from './store.ts';
 import { TELNET_GREETING, TelnetParser } from './telnet.ts';
+import type { WorldRecord } from '@fq2js/engine/shared';
 
-export interface ServerOptions<F extends FlagRecord> {
-    content: Content<F>;
+export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
+    content: Content<F, W>;
     // The game's data folder (config.json, items.json, monsters.json, maps/).
     dataDir: string;
     // The database file, or ':memory:'.
@@ -82,20 +84,20 @@ const MAX_PENDING = 1024 * 1024;
 
 const PAGE = readFileSync(join(import.meta.dir, 'client.html'), 'utf8');
 
-interface Shared<F extends FlagRecord> {
+interface Shared<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     world: World;
     config: Config;
     monsters: Bestiary;
     items: ItemCatalogue;
-    content: Content<F>;
+    content: Content<F, W>;
     store: Store;
 }
 
 // One player's connection, whichever way they came in.
-class Connection<F extends FlagRecord> {
+class Connection<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     public readonly io: RemoteIO;
     public readonly term: Terminal;
-    public session: Session<F> | null = null;
+    public session: Session<F, W> | null = null;
     public finished: Promise<void> = Promise.resolve();
     private closed = false;
     private readonly hangUp: () => void;
@@ -137,7 +139,7 @@ class Connection<F extends FlagRecord> {
     }
 }
 
-export function startServer<F extends FlagRecord>(options: ServerOptions<F>): RunningServer {
+export function startServer<F extends FlagRecord, W extends WorldRecord = WorldRecord>(options: ServerOptions<F, W>): RunningServer {
     const { content, dataDir, host = '127.0.0.1', telnetPort = 2323, webPort = 8080, maxPlayers = 50, idleMinutes = 30 } = options;
     const log = options.log ?? ((line: string) => {
         console.log(`${new Date().toISOString()} ${line}`);
@@ -149,17 +151,20 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
         log(`Mod: ${describeMod(mod)}`);
     }
 
-    const shared: Shared<F> = {
+    const shared: Shared<F, W> = {
         ...applyMods({ content, ...data }, mods),
         config,
         store: new Store(options.database, { log }),
     };
-    const connections = new Set<Connection<F>>();
-    const connect = (send: (text: string) => void, hangUp: () => void): Connection<F> => new Connection<F>(send, hangUp, options.gameName);
-    const realm = new Realm<F>();
+    const connections = new Set<Connection<F, W>>();
+    const connect = (send: (text: string) => void, hangUp: () => void): Connection<F, W> => new Connection<F, W>(send, hangUp, options.gameName);
+    const realm = new Realm<F, W>();
+    const worldStore = new ServerWorld(shared.store, shared.content.world, () => {
+        realm.everyoneChanged();
+    }, log);
 
     // Starts the session for a new connection (once the terminal size is known).
-    const begin = (connection: Connection<F>): void => {
+    const begin = (connection: Connection<F, W>): void => {
         const { term } = connection;
         if (connection.isClosed || connection.session) {
             return;
@@ -183,7 +188,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
             connection.close();
         };
 
-        const session = new Session<F>({
+        const session = new Session<F, W>({
             term,
             store: shared.store,
             content: shared.content,
@@ -215,6 +220,10 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
                         D: { help: 'the daily news', run: news(talking) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
                         L: { help: 'every player, ranked', run: rankings(realm, shared.store, shared.content.start, shared.items) },
+                    },
+                    worldStore,
+                    news: (text) => {
+                        shared.store.addNews(text, Date.now());
                     },
                     fought: (_player, monster, result) => {
                         if (result === 'lost') {
@@ -258,7 +267,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
 
     let telnet: TCPSocketListener<undefined> | null = null;
     if (telnetPort !== null) {
-        const bySocket = new WeakMap<Socket, { connection: Connection<F>; parser: TelnetParser; started: boolean; pending: Uint8Array[]; pendingBytes: number }>();
+        const bySocket = new WeakMap<Socket, { connection: Connection<F, W>; parser: TelnetParser; started: boolean; pending: Uint8Array[]; pendingBytes: number }>();
         const encoder = new TextEncoder();
         const write = (socket: Socket, bytes: Uint8Array): void => {
             const state = bySocket.get(socket);
@@ -368,7 +377,7 @@ export function startServer<F extends FlagRecord>(options: ServerOptions<F>): Ru
     // ---- The web
 
     interface WebData {
-        connection: Connection<F> | null;
+        connection: Connection<F, W> | null;
     }
 
     let web: Server<WebData> | null = null;

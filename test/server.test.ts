@@ -268,6 +268,23 @@ describe('telnet', () => {
 });
 
 describe('the realm', () => {
+    test("the world's state is shared: Bob hears the bell Ann rang", async () => {
+        const server = start();
+        const port = server.telnetPort ?? 0;
+        const ann = await telnet(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        // Into the hut, and along to the bell.
+        ann.send(DOWN + '\x1b[C'.repeat(15));
+        await ann.sees('The bell has rung 1 times.');
+
+        const bob = await telnet(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        bob.send(DOWN + '\x1b[C'.repeat(15));
+        await bob.sees('The bell has rung 2 times.');
+    });
+
     test('players talk to each other, and the news has them', async () => {
         const server = start();
         const port = server.telnetPort ?? 0;

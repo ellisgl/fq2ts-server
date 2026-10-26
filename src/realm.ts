@@ -9,6 +9,7 @@
 import type { Figure, Game } from '@fq2js/engine/game';
 import type { FlagRecord } from '@fq2js/engine/player';
 import { escapeMarkup } from '@fq2js/engine/text';
+import type { WorldRecord } from '@fq2js/engine/shared';
 
 // Where a player is.
 export interface Place {
@@ -17,11 +18,11 @@ export interface Place {
     y: number;
 }
 
-export interface Member<F extends FlagRecord> {
+export interface Member<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     name: string;
     // Until their game has begun, it isn't there; until they've been placed
     // on the map, nor is their place.
-    game: Game<F> | null;
+    game: Game<F, W> | null;
     place: Place | null;
 }
 
@@ -30,8 +31,8 @@ export const OTHER_PLAYER = { ch: '☻', fg: 11 } as const;
 // How soon a player can say (or yell) something again.
 export const CHAT_WAIT = 1000;
 
-export class Realm<F extends FlagRecord> {
-    private readonly members = new Map<number, Member<F>>();
+export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
+    private readonly members = new Map<number, Member<F, W>>();
     // When each member last said something.
     private readonly lastSaid = new Map<number, number>();
     private readonly now: () => number;
@@ -52,7 +53,7 @@ export class Realm<F extends FlagRecord> {
     }
 
     // The account's game has begun: everyone else is told they're here.
-    public attach(accountId: number, game: Game<F>): void {
+    public attach(accountId: number, game: Game<F, W>): void {
         const member = this.members.get(accountId);
         if (!member) {
             return;
@@ -113,6 +114,14 @@ export class Realm<F extends FlagRecord> {
             .filter(([, { game }]) => game !== null)
             .map(([accountId, { name, place }]) => ({ accountId, name, place }))
             .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // Something everyone may see has changed (the world's state): everyone
+    // redraws.
+    public everyoneChanged(): void {
+        for (const { game } of this.members.values()) {
+            game?.othersChanged();
+        }
     }
 
     // ---- Talking
