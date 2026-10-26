@@ -210,6 +210,36 @@ export class Store {
         this.db.query('INSERT INTO world (name, value) VALUES ($name, $value) ON CONFLICT(name) DO UPDATE SET value = $value').run({ name, value: JSON.stringify(value) });
     }
 
+    // ---- Days
+
+    // The day a player's daily things (fights, daily flags) belong to, and
+    // their fights that day; null if they've had none.
+    public playerDay(accountId: number): { day: string; fights: number } | null {
+        const row: unknown = this.db.query('SELECT day, fights FROM days WHERE account_id = $id').get({ id: accountId });
+        if (row === null) {
+            return null;
+        }
+
+        const r = record(row, 'day');
+        return { day: field(r, 'day', 'day', string), fights: field(r, 'fights', 'day', integer) };
+    }
+
+    public setPlayerDay(accountId: number, day: string, fights: number): void {
+        this.db
+            .query('INSERT INTO days (account_id, day, fights) VALUES ($id, $day, $fights) ON CONFLICT(account_id) DO UPDATE SET day = $day, fights = $fights')
+            .run({ id: accountId, day, fights });
+    }
+
+    // Small things the server keeps about itself (the day it last saw).
+    public meta(name: string): string | null {
+        const row: unknown = this.db.query('SELECT value FROM meta WHERE name = $name').get({ name });
+        return row === null ? null : field(record(row, 'meta'), 'value', 'meta', string);
+    }
+
+    public setMeta(name: string, value: string): void {
+        this.db.query('INSERT INTO meta (name, value) VALUES ($name, $value) ON CONFLICT(name) DO UPDATE SET value = $value').run({ name, value });
+    }
+
     // ---- Codes sent by email (only their hashes are kept)
 
     // A new code for this, in place of any before it.

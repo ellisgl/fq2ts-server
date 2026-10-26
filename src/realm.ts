@@ -108,6 +108,27 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         return figures;
     }
 
+    public gameOf(accountId: number): Game<F, W> | null {
+        return this.members.get(accountId)?.game ?? null;
+    }
+
+    // The others next to (or on) a member's place, out on the map (not in
+    // the middle of a scene of their own), by name.
+    public near(accountId: number): { accountId: number; name: string; game: Game<F, W> }[] {
+        const mine = this.members.get(accountId)?.place;
+        if (!mine) {
+            return [];
+        }
+
+        const near: { accountId: number; name: string; game: Game<F, W> }[] = [];
+        for (const [id, { name, game, place }] of this.members) {
+            if (id !== accountId && game?.showingMap && place?.screen === mine.screen && Math.abs(place.x - mine.x) <= 1 && Math.abs(place.y - mine.y) <= 1) {
+                near.push({ accountId: id, name, game });
+            }
+        }
+        return near.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
     // Everyone playing, by name, with where they are (if they've a place yet).
     public online(): { accountId: number; name: string; place: Place | null }[] {
         return [...this.members]

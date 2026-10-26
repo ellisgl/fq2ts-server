@@ -1,7 +1,7 @@
 // The whole server, on real sockets: telnet over TCP, and the web page and
 // its web socket.
 
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client as SshClient } from 'ssh2';
@@ -283,6 +283,32 @@ describe('the realm', () => {
         await bob.sees('HP 100/100');
         bob.send(DOWN + '\x1b[C'.repeat(15));
         await bob.sees('The bell has rung 2 times.');
+    });
+
+    test('H attacks a player next to you; they hear of it', async () => {
+        const server = start();
+        const port = server.telnetPort ?? 0;
+        const ann = await telnet(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        const bob = await telnet(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        // Both stand where new games start: next to each other.
+        ann.send('h');
+        await ann.sees('Fight whom?');
+        // (High rolls: Ann moves first, and gets away when she runs.)
+        const random = spyOn(Math, 'random').mockReturnValue(0.99);
+        try {
+            ann.send('\r');
+            await bob.sees('Ann attacks you!');
+            // Ann thinks better of it, and runs.
+            await ann.sees('Run for it');
+            ann.send('\x1b[C\r');
+            await bob.sees('Ann attacked you, then ran away.');
+        } finally {
+            random.mockRestore();
+        }
     });
 
     test('players talk to each other, and the news has them', async () => {

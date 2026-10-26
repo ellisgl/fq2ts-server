@@ -22,6 +22,8 @@ import { logMailer, type Mailer } from './mail.ts';
 import { Session } from './session.ts';
 import { Realm } from './realm.ts';
 import { ServerWorld } from './world-state.ts';
+import { Days } from './days.ts';
+import { attack } from './pvp.ts';
 import { rankings, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2js/engine/text';
@@ -51,6 +53,8 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     idleMinutes?: number;
     // How often to look for idle players, in milliseconds (default: 30s).
     idleCheck?: number;
+    // The time, in milliseconds (for tests: days turn at midnight by it).
+    now?(): number;
     log?(line: string): void;
     // Mods to add to the game (see @fq2js/engine/mods: loadMods reads them).
     mods?: readonly LoadedMod[];
@@ -159,6 +163,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     const connections = new Set<Connection<F, W>>();
     const connect = (send: (text: string) => void, hangUp: () => void): Connection<F, W> => new Connection<F, W>(send, hangUp, options.gameName);
     const realm = new Realm<F, W>();
+    const now = options.now ?? Date.now;
+    const days = new Days<F, W>({ store: shared.store, content: shared.content, realm, now });
     const worldStore = new ServerWorld(shared.store, shared.content.world, () => {
         realm.everyoneChanged();
     }, log);
@@ -198,6 +204,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                 const me = { id, name };
                 const talking = { realm, store: shared.store, me };
                 const isNew = shared.store.loadPlayer(id) === null;
+                // (A player back on a new day starts it afresh.)
+                days.arrive(id);
                 const game = new Game({
                     term,
                     world: shared.world,
@@ -218,6 +226,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         Y: { help: 'yell to everyone in the realm', run: yell(talking) },
                         W: { help: 'your mail: read and write letters', run: mail(talking) },
                         D: { help: 'the daily news', run: news(talking) },
+                        H: { help: 'fight a player next to you', run: attack({ realm, store: shared.store, days, world: shared.world, items: shared.items, me, now }) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
                         L: { help: 'every player, ranked', run: rankings(realm, shared.store, shared.content.start, shared.items) },
                     },
@@ -489,7 +498,9 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
 
     // ---- Idle players
 
+    // Idle players go, and at midnight a new day dawns.
     const idleTimer = setInterval(() => {
+        days.check();
         const cutoff = Date.now() - idleMinutes * 60_000;
         for (const connection of connections) {
             if (connection.term.lastInput < cutoff) {

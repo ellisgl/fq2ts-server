@@ -92,6 +92,19 @@ export const MIGRATIONS: readonly Migration[] = [
             db.run('CREATE TABLE world (name TEXT PRIMARY KEY, value TEXT NOT NULL)');
         },
     },
+    {
+        description: 'Days: each player\'s fights today, and the server\'s day',
+        up: (db) => {
+            db.run(`
+                CREATE TABLE days (
+                    account_id INTEGER PRIMARY KEY REFERENCES accounts(id),
+                    day TEXT NOT NULL,
+                    fights INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE meta (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {
