@@ -1,5 +1,6 @@
-// The multiplayer server: players connect by telnet or with a web browser
-// (an xterm.js page talking over a web socket), log in, and play.
+// The multiplayer server: players connect by SSH or with a web browser
+// (an xterm.js page talking over a web socket), log in, and play. There's
+// no telnet: it would send passwords in the clear.
 //
 // Everything runs in this one process: each connection gets a Terminal and
 // a Session (the login screens, then a Game), sharing the world data and
@@ -7,7 +8,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Socket, TCPSocketListener, Server, ServerWebSocket } from 'bun';
+import type { Server, ServerWebSocket } from 'bun';
 import { Terminal } from '@fq2js/engine/terminal';
 import type { World } from '@fq2js/engine/world';
 import { Game, type Config, type Content } from '@fq2js/engine/game';
@@ -34,7 +35,6 @@ import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2js/engine/text';
 import { listenSsh, type SshServer } from './ssh.ts';
 import { Store } from './store.ts';
-import { TELNET_GREETING, TelnetParser } from './telnet.ts';
 import type { WorldRecord } from '@fq2js/engine/shared';
 
 export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
@@ -45,13 +45,12 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     database: string;
     host?: string;
     // Where the web page listens, if not `host` (127.0.0.1 behind a TLS
-    // proxy, while telnet and SSH listen to everyone).
+    // proxy, while SSH listens to everyone).
     webHost?: string;
     // Whether web players' addresses come from X-Forwarded-For (set by the
     // proxy in front). Without it, behind a proxy they all look like it.
     trustProxy?: boolean;
-    // null turns that way of connecting off; 0 picks a free port.
-    telnetPort?: number | null;
+    // null turns the web off; 0 picks a free port.
     webPort?: number | null;
     // SSH is off unless given a port and the file for its host key (made
     // if it isn't there).
@@ -81,7 +80,6 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
 }
 
 export interface RunningServer {
-    telnetPort: number | null;
     webPort: number | null;
     sshPort: number | null;
     connections(): number;
@@ -89,7 +87,7 @@ export interface RunningServer {
     stop(): Promise<void>;
 }
 
-// How long telnet waits for the client to say its window size.
+// How long the web page has to say its window size.
 const WINDOW_SIZE_WAIT = 500;
 // How often idle players are looked for.
 const IDLE_CHECK = 30_000;
@@ -162,7 +160,7 @@ class Connection<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 }
 
 export function startServer<F extends FlagRecord, W extends WorldRecord = WorldRecord>(options: ServerOptions<F, W>): RunningServer {
-    const { content, dataDir, host = '127.0.0.1', telnetPort = 2323, webPort = 8080, maxPlayers = 50, idleMinutes = 30 } = options;
+    const { content, dataDir, host = '127.0.0.1', webPort = 8080, maxPlayers = 50, idleMinutes = 30 } = options;
     const webHost = options.webHost ?? host;
     const log = options.log ?? ((line: string) => {
         console.log(`${new Date().toISOString()} ${line}`);
@@ -371,121 +369,6 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
         });
     };
 
-    // ---- Telnet
-
-    let telnet: TCPSocketListener<undefined> | null = null;
-    if (telnetPort !== null) {
-        const bySocket = new WeakMap<Socket, { connection: Connection<F, W>; parser: TelnetParser; started: boolean; pending: Uint8Array[]; pendingBytes: number }>();
-        const encoder = new TextEncoder();
-        const write = (socket: Socket, bytes: Uint8Array): void => {
-            const state = bySocket.get(socket);
-            if (!state) {
-                return;
-            }
-
-            if (state.pending.length) {
-                if (state.pendingBytes + bytes.length > MAX_PENDING) {
-                    log('Telnet: a player stopped reading; closing their connection.');
-                    state.pending = [];
-                    state.pendingBytes = 0;
-                    state.connection.close();
-                    return;
-                }
-
-                state.pending.push(bytes);
-                state.pendingBytes += bytes.length;
-                return;
-            }
-
-            const written = socket.write(bytes);
-            if (written < bytes.length) {
-                const rest = bytes.subarray(Math.max(0, written));
-                state.pending.push(rest);
-                state.pendingBytes += rest.length;
-            }
-        };
-        const start = (socket: Socket): void => {
-            const state = bySocket.get(socket);
-            if (state && !state.started && !state.connection.isClosed) {
-                state.started = true;
-                begin(state.connection);
-            }
-        };
-
-        telnet = Bun.listen({
-            hostname: host,
-            port: telnetPort,
-            socket: {
-                open: (socket) => {
-                    const connection = connect(
-                        (text) => {
-                            write(socket, encoder.encode(text));
-                        },
-                        () => {
-                            socket.end();
-                        },
-                        socket.remoteAddress,
-                    );
-                    bySocket.set(socket, { connection, parser: new TelnetParser(), started: false, pending: [], pendingBytes: 0 });
-                    connections.add(connection);
-                    socket.write(TELNET_GREETING);
-                    if (turnedAway(connection)) {
-                        return;
-                    }
-                    setTimeout(() => {
-                        start(socket);
-                    }, WINDOW_SIZE_WAIT);
-                },
-                data: (socket, bytes) => {
-                    const state = bySocket.get(socket);
-                    if (!state) {
-                        return;
-                    }
-
-                    const { text, size } = state.parser.feed(bytes);
-                    if (size) {
-                        state.connection.io.resized(size.columns, size.rows);
-                        start(socket);
-                    }
-
-                    if (text) {
-                        state.connection.io.typed(text);
-                    }
-                },
-                drain: (socket) => {
-                    const state = bySocket.get(socket);
-                    while (state?.pending.length) {
-                        const [first] = state.pending;
-                        if (!first) {
-                            break;
-                        }
-
-                        const written = Math.max(0, socket.write(first));
-                        state.pendingBytes -= Math.min(written, first.length);
-                        if (written < first.length) {
-                            state.pending[0] = first.subarray(written);
-                            return;
-                        }
-
-                        state.pending.shift();
-                    }
-                },
-                close: (socket) => {
-                    const state = bySocket.get(socket);
-                    if (state) {
-                        state.connection.lost();
-                        connections.delete(state.connection);
-                    }
-                },
-                error: (socket, error) => {
-                    log(`Telnet error: ${error.message}`);
-                    bySocket.get(socket)?.connection.lost();
-                },
-            },
-        });
-        log(`Telnet: ${host} port ${telnet.port}`);
-    }
-
     // ---- The web
 
     interface WebData {
@@ -524,7 +407,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             },
             websocket: {
                 maxPayloadLength: MAX_MESSAGE,
-                // A browser that stops reading is disconnected, as on telnet.
+                // A browser that stops reading is disconnected.
                 backpressureLimit: MAX_PENDING,
                 closeOnBackpressureLimit: true,
                 open: (ws: ServerWebSocket<WebData>) => {
@@ -543,7 +426,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         return;
                     }
                     // The page says its size straight away; if it doesn't,
-                    // start anyway (at 80x25), as telnet does.
+                    // start anyway (at 80x25).
                     setTimeout(() => {
                         begin(connection);
                     }, WINDOW_SIZE_WAIT);
@@ -634,7 +517,6 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     }, options.idleCheck ?? IDLE_CHECK);
 
     return {
-        telnetPort: telnet?.port ?? null,
         webPort: web?.port ?? null,
         sshPort: ssh?.port ?? null,
         connections: () => connections.size,
@@ -643,7 +525,6 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             // Take no new players. (Bun 1.3's server.stop() promise never
             // settles once a web socket has connected, though it does stop
             // listening; so it isn't awaited.)
-            telnet?.stop();
             void web?.stop();
             ssh?.stop();
             // (Closing a connection takes it out of `connections`, so wait
@@ -656,7 +537,6 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             }
 
             await Promise.all(open.map((c) => c.finished));
-            telnet?.stop(true);
             shared.store.close();
         },
     };

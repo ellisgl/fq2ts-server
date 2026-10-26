@@ -1,12 +1,11 @@
-// The whole server, on real sockets: telnet over TCP, and the web page and
-// its web socket.
+// The whole server, on real sockets: the web page and its web socket, and
+// SSH.
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client as SshClient } from 'ssh2';
 import { startServer, type RunningServer, type ServerOptions } from '../src/server.ts';
-import { TELNET, TELNET_GREETING } from '../src/telnet.ts';
 import { ScreenModel } from './screen-model.ts';
 import { hostKey, newHostKey } from '../src/ssh.ts';
 import { Store } from '../src/store.ts';
@@ -15,7 +14,6 @@ import { tempDir } from '@fq2js/engine/testing';
 import { content, FIXTURE_DATA, type TestFlags } from '@fq2js/engine/fixture';
 import { MOD_API, readMod, type ModContext } from '@fq2js/engine/mods';
 
-const { IAC, SB, SE, NAWS } = TELNET;
 const DOWN = '\x1b[B';
 
 let running: RunningServer | null = null;
@@ -32,7 +30,6 @@ function start(options: Partial<ServerOptions<TestFlags>> = {}): RunningServer {
         content,
         dataDir: FIXTURE_DATA,
         database: ':memory:',
-        telnetPort: 0,
         webPort: 0,
         log: (line) => logs.push(line),
         hashPassword: (p) => Promise.resolve(`hash:${p}`),
@@ -69,49 +66,8 @@ interface Client {
     raw(): Uint8Array;
 }
 
-async function telnet(port: number, { size = [80, 25] as [number, number] | null } = {}): Promise<Client> {
-    const chunks: Uint8Array[] = [];
-    let isClosed = false;
-    const model = new ScreenModel();
-    const decoder = new TextDecoder();
-    // The greeting is telnet commands, not text for the screen.
-    let greeting = TELNET_GREETING.length;
-    const socket = await Bun.connect({
-        hostname: '127.0.0.1',
-        port,
-        socket: {
-            data: (_socket, data) => {
-                const bytes = new Uint8Array(data);
-                chunks.push(bytes);
-                const skip = Math.min(greeting, bytes.length);
-                greeting -= skip;
-                model.feed(decoder.decode(bytes.subarray(skip), { stream: true }));
-            },
-            close: () => {
-                isClosed = true;
-            },
-        },
-    });
-    const raw = (): Uint8Array => new Uint8Array(chunks.flatMap((c) => [...c]));
-    const received = (): string => plain(new TextDecoder().decode(raw()));
-    if (size) {
-        const [w, h] = size;
-        socket.write(new Uint8Array([IAC, SB, NAWS, 0, w, 0, h, IAC, SE]));
-    }
-
-    return {
-        send: (data) => {
-            socket.write(typeof data === 'string' ? new TextEncoder().encode(data) : data);
-        },
-        sees: (text) => until(`"${text}"`, () => model.text().includes(text)),
-        screen: () => model.text(),
-        closed: () => until('the connection to close', () => isClosed),
-        received,
-        raw,
-    };
-}
-
-async function browser(port: number, headers: Record<string, string> = {}): Promise<Client & { ws: WebSocket }> {
+// A browser, which says its window size (as the page does) unless told not to.
+async function browser(port: number, { size = [80, 25] as [number, number] | null, headers = {} } = {}): Promise<Client & { ws: WebSocket }> {
     let text = '';
     let isClosed = false;
     const model = new ScreenModel();
@@ -125,6 +81,9 @@ async function browser(port: number, headers: Record<string, string> = {}): Prom
     };
     // (Open, or turned away: then the server says why, and closes it.)
     await until('the web socket to open', () => ws.readyState !== WebSocket.CONNECTING);
+    if (size && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols: size[0], rows: size[1] }));
+    }
     return {
         ws,
         send: (data) => {
@@ -199,19 +158,18 @@ async function newPlayer(client: Client, name = 'Hero'): Promise<void> {
     client.send(' ');
 }
 
-describe('telnet', () => {
-    test('greets, asks for the window size, and shows the login menu', async () => {
+describe('playing', () => {
+    test('shows the login menu', async () => {
         const server = start();
-        const client = await telnet(server.telnetPort ?? 0);
+        const client = await browser(server.webPort ?? 0);
         await client.sees('Log');
-        expect([...client.raw().slice(0, TELNET_GREETING.length)]).toEqual([...TELNET_GREETING]);
         expect(client.received()).toContain('player');
     });
 
     test('a new player plays, leaves, and comes back to the same place', async () => {
         const server = start();
-        const port = server.telnetPort ?? 0;
-        const first = await telnet(port);
+        const port = server.webPort ?? 0;
+        const first = await browser(port);
         await newPlayer(first);
         await first.sees('HP 100/100');
         first.send('\x1b[C');
@@ -222,7 +180,7 @@ describe('telnet', () => {
         first.send('\x1b');
         await first.closed();
 
-        const again = await telnet(port);
+        const again = await browser(port);
         await again.sees('Log');
         again.send('\r');
         await again.sees('Name:');
@@ -231,22 +189,16 @@ describe('telnet', () => {
         expect(logs.filter((line) => line === 'Hero enters the realm.')).toHaveLength(2);
     });
 
-    test('without a window size, it starts anyway (at 80x25)', async () => {
-        const server = start();
-        const client = await telnet(server.telnetPort ?? 0, { size: null });
-        await client.sees('Log');
-    });
-
     test('a window smaller than 80x25 is turned away', async () => {
         const server = start();
-        const client = await telnet(server.telnetPort ?? 0, { size: [70, 20] });
+        const client = await browser(server.webPort ?? 0, { size: [70, 20] });
         await client.sees('This game needs a terminal of at least 80x25 (this one is 70x20)');
         await client.closed();
     });
 
     test('Ctrl-C hangs up, and a disconnect mid-game saves the player', async () => {
         const server = start();
-        const client = await telnet(server.telnetPort ?? 0);
+        const client = await browser(server.webPort ?? 0);
         await newPlayer(client);
         await client.sees('HP 100/100');
         client.send('\x03');
@@ -257,11 +209,11 @@ describe('telnet', () => {
 
     test('the same account can only play once at a time', async () => {
         const server = start();
-        const port = server.telnetPort ?? 0;
-        const first = await telnet(port);
+        const port = server.webPort ?? 0;
+        const first = await browser(port);
         await newPlayer(first);
         await first.sees('HP 100/100');
-        const second = await telnet(port);
+        const second = await browser(port);
         await second.sees('Log');
         second.send('\r');
         await second.sees('Name:');
@@ -273,15 +225,15 @@ describe('telnet', () => {
 describe('the realm', () => {
     test("the world's state is shared: Bob hears the bell Ann rang", async () => {
         const server = start();
-        const port = server.telnetPort ?? 0;
-        const ann = await telnet(port);
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
         await newPlayer(ann, 'Ann');
         await ann.sees('HP 100/100');
         // Into the hut, and along to the bell.
         ann.send(DOWN + '\x1b[C'.repeat(15));
         await ann.sees('The bell has rung 1 times.');
 
-        const bob = await telnet(port);
+        const bob = await browser(port);
         await newPlayer(bob, 'Bob');
         await bob.sees('HP 100/100');
         bob.send(DOWN + '\x1b[C'.repeat(15));
@@ -290,11 +242,11 @@ describe('the realm', () => {
 
     test("the server's rules are used: with no fights a day, there's no fighting", async () => {
         const server = start({ rules: { fightsPerDay: 0 } });
-        const port = server.telnetPort ?? 0;
-        const ann = await telnet(port);
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
         await newPlayer(ann, 'Ann');
         await ann.sees('HP 100/100');
-        const bob = await telnet(port);
+        const bob = await browser(port);
         await newPlayer(bob, 'Bob');
         await bob.sees('HP 100/100');
         ann.send('h');
@@ -303,11 +255,11 @@ describe('the realm', () => {
 
     test('H attacks a player next to you; they hear of it', async () => {
         const server = start();
-        const port = server.telnetPort ?? 0;
-        const ann = await telnet(port);
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
         await newPlayer(ann, 'Ann');
         await ann.sees('HP 100/100');
-        const bob = await telnet(port);
+        const bob = await browser(port);
         await newPlayer(bob, 'Bob');
         await bob.sees('HP 100/100');
         // Both stand where new games start: next to each other.
@@ -329,11 +281,11 @@ describe('the realm', () => {
 
     test('players talk to each other, and the news has them', async () => {
         const server = start();
-        const port = server.telnetPort ?? 0;
-        const ann = await telnet(port);
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
         await newPlayer(ann, 'Ann');
         await ann.sees('HP 100/100');
-        const bob = await telnet(port);
+        const bob = await browser(port);
         await newPlayer(bob, 'Bob');
         await bob.sees('HP 100/100');
         // (Ann's game hears Bob arrive first; then they're both on screen 1.)
@@ -352,11 +304,11 @@ describe('the realm', () => {
 
     test('players see each other arrive, walk about and leave; P lists them', async () => {
         const server = start();
-        const port = server.telnetPort ?? 0;
-        const ann = await telnet(port);
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
         await newPlayer(ann, 'Ann');
         await ann.sees('HP 100/100');
-        const bob = await telnet(port);
+        const bob = await browser(port);
         await newPlayer(bob, 'Bob');
         await bob.sees('HP 100/100');
         await ann.sees('Bob enters the realm.');
@@ -401,20 +353,19 @@ describe('the web', () => {
     test('a browser plays over the web socket once it says its size', async () => {
         const server = start();
         const client = await browser(server.webPort ?? 0);
-        client.ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 25 }));
         await newPlayer(client);
         await client.sees('HP 100/100');
     });
 
     test('a browser that never says its size starts anyway (at 80x25)', async () => {
         const server = start();
-        const client = await browser(server.webPort ?? 0);
+        const client = await browser(server.webPort ?? 0, { size: null });
         await client.sees('Log');
     });
 
     test('bad messages are logged and ignored', async () => {
         const server = start();
-        const client = await browser(server.webPort ?? 0);
+        const client = await browser(server.webPort ?? 0, { size: null });
         client.ws.send('not json');
         client.ws.send(JSON.stringify({ type: 'shout' }));
         client.ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 25 }));
@@ -425,7 +376,6 @@ describe('the web', () => {
     test('the web can be turned off', () => {
         const server = start({ webPort: null });
         expect(server.webPort).toBeNull();
-        expect(server.telnetPort).not.toBeNull();
     });
 });
 
@@ -513,7 +463,7 @@ describe('SSH', () => {
     test('a port already taken is reported', async () => {
         const errors: Error[] = [];
         const first = withSsh();
-        start({ ssh: { port: first.sshPort ?? 0, hostKeyFile: join(tempDir(), 'k') }, onError: (error) => errors.push(error), telnetPort: null, webPort: null });
+        start({ ssh: { port: first.sshPort ?? 0, hostKeyFile: join(tempDir(), 'k') }, onError: (error) => errors.push(error), webPort: null });
         await until('the error', () => errors.length > 0);
         expect(errors[0]).toMatchObject({ code: 'EADDRINUSE' });
         await first.stop();
@@ -526,7 +476,7 @@ test('mods are added to the game, and listed in the log', async () => {
     } } } }, 'sign/mod.ts');
     const server = start({ mods: [{ mod, dir: 'sign', items: null, monsters: null, maps: [] }] });
     expect(logs).toContain('Mod: A Sign 2.0 (sign)');
-    const client = await telnet(server.telnetPort ?? 0);
+    const client = await browser(server.webPort ?? 0);
     await newPlayer(client);
     await client.sees('MODDED');
 });
@@ -544,9 +494,9 @@ describe('admins', () => {
         expect(runAdmin({ args: ['admin', 'Ann', '--data', dir], log: () => undefined })).toBe(0);
 
         const server = start({ database });
-        const port = server.telnetPort ?? 0;
+        const port = server.webPort ?? 0;
         const logIn = async (name: string): Promise<Client> => {
-            const client = await telnet(port);
+            const client = await browser(port);
             await client.sees('Log');
             client.send('\r');
             await client.sees('Name:');
@@ -589,7 +539,7 @@ describe('limits and shutting down', () => {
         store.banAddress('127.0.0.1', 'Go away.');
         store.close();
         const server = start({ database });
-        const client = await telnet(server.telnetPort ?? 0);
+        const client = await browser(server.webPort ?? 0);
         await client.sees('This address is banned from the realm: Go away.');
         await client.closed();
         expect(logs).toContain("Turned away 127.0.0.1: it's banned.");
@@ -603,34 +553,32 @@ describe('limits and shutting down', () => {
         const forwarded = { 'X-Forwarded-For': '198.51.100.7' };
 
         const trusting = start({ database, trustProxy: true });
-        const banned = await browser(trusting.webPort ?? 0, forwarded);
-        banned.ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 25 }));
+        const banned = await browser(trusting.webPort ?? 0, { headers: forwarded });
         await banned.sees('This address is banned from the realm: Spam.');
         await trusting.stop();
 
         // Not trusted, the header is anyone's to send, and isn't believed.
         const careful = start({ database });
-        const client = await browser(careful.webPort ?? 0, forwarded);
-        client.ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 25 }));
+        const client = await browser(careful.webPort ?? 0, { headers: forwarded });
         await client.sees('Log');
     });
 
     test('an address can only connect so often', async () => {
         const server = start({ rules: { connectionsPerMinute: 2 } });
-        const port = server.telnetPort ?? 0;
+        const port = server.webPort ?? 0;
         for (let i = 0; i < 2; i++) {
-            await (await telnet(port)).sees('Log');
+            await (await browser(port)).sees('Log');
         }
-        const third = await telnet(port);
+        const third = await browser(port);
         await third.sees('Too many connections from your address. Please wait a minute.');
         await third.closed();
     });
 
     test('wrong passwords from new connections still count: logins from the address stop', async () => {
         const server = start({ rules: { loginFailuresPerAddress: 2 } });
-        const port = server.telnetPort ?? 0;
+        const port = server.webPort ?? 0;
         const guess = async (): Promise<Client> => {
-            const client = await telnet(port);
+            const client = await browser(port);
             await client.sees('Log');
             client.send('\r');
             await client.sees('Name:');
@@ -644,23 +592,23 @@ describe('limits and shutting down', () => {
 
     test('when the realm is full, others are turned away', async () => {
         const server = start({ maxPlayers: 1 });
-        const first = await telnet(server.telnetPort ?? 0);
+        const first = await browser(server.webPort ?? 0);
         await first.sees('Log');
-        const second = await telnet(server.telnetPort ?? 0);
+        const second = await browser(server.webPort ?? 0);
         await second.sees('The realm is full');
         await second.closed();
     });
 
     test('idle players are disconnected', async () => {
         const server = start({ idleMinutes: 0, idleCheck: 50 });
-        const client = await telnet(server.telnetPort ?? 0);
+        const client = await browser(server.webPort ?? 0);
         await client.sees('idle for 0 minutes');
         await client.closed();
     });
 
     test('stopping saves everyone and says goodbye', async () => {
         const server = start();
-        const client = await telnet(server.telnetPort ?? 0);
+        const client = await browser(server.webPort ?? 0);
         await newPlayer(client);
         await client.sees('HP 100/100');
         await server.stop();

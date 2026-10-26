@@ -27,8 +27,8 @@ export interface ServerCli<F extends FlagRecord, W extends WorldRecord = WorldRe
     database?: string;
     // The command line (default: this process's).
     args?: readonly string[];
-    // What environment variables start with (default: FQ2_): --telnet-port
-    // is FQ2_TELNET_PORT.
+    // What environment variables start with (default: FQ2_): --web-port
+    // is FQ2_WEB_PORT.
     envPrefix?: string;
 }
 
@@ -36,8 +36,8 @@ export interface ServerCli<F extends FlagRecord, W extends WorldRecord = WorldRe
 const usage = (prefix: string): string => `Usage: server [options]
 
 Each option can also be set in the environment, or in a .env file in the
-folder the server is started from (see .env.example): --telnet-port is
-${prefix}TELNET_PORT, and so on. Options given here win.
+folder the server is started from (see .env.example): --web-port is
+${prefix}WEB_PORT, and so on. Options given here win.
 
   --host ADDRESS        where to listen (default: 127.0.0.1, this computer
                         only; 0.0.0.0 lets other computers in)
@@ -45,11 +45,9 @@ ${prefix}TELNET_PORT, and so on. Options given here win.
                         127.0.0.1 behind a TLS proxy)
   --trust-proxy         web players' addresses come from X-Forwarded-For,
                         set by the proxy in front (for bans and limits)
-  --telnet-port N       telnet port (default: 2323)
   --web-port N          web port (default: 8080); players open http://host:N/
   --ssh-port N          SSH port (default: 2222); players use
                         ssh -p N host (any user name, no password)
-  --no-telnet           don't accept telnet (it sends passwords unencrypted)
   --no-web              don't accept web browsers
   --no-ssh              don't accept SSH
   --data DIR            where the database and the SSH host key go
@@ -78,9 +76,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
             'host': { type: 'string' },
             'web-host': { type: 'string' },
             'trust-proxy': { type: 'boolean' },
-            'telnet-port': { type: 'string' },
             'web-port': { type: 'string' },
-            'no-telnet': { type: 'boolean' },
             'no-web': { type: 'boolean' },
             'ssh-port': { type: 'string' },
             'no-ssh': { type: 'boolean' },
@@ -104,7 +100,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
 
     type Name = Exclude<keyof typeof values, 'help'> | (typeof RULE_OPTIONS)[number]['option'];
 
-    // An option's environment variable: --telnet-port is FQ2_TELNET_PORT.
+    // An option's environment variable: --web-port is FQ2_WEB_PORT.
     const envName = (name: Name): string => `${envPrefix}${name.toUpperCase().replaceAll('-', '_')}`;
     // How to name an option in a message.
     const both = (name: Name): string => `--${name} (or ${envName(name)})`;
@@ -204,7 +200,6 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
                 host: setting('host', '127.0.0.1'),
                 webHost: setting('web-host', setting('host', '127.0.0.1')),
                 trustProxy: flag('trust-proxy'),
-                telnetPort: flag('no-telnet') ? null : number('telnet-port', 2323),
                 webPort: flag('no-web') ? null : number('web-port', 8080),
                 ssh: flag('no-ssh') ? null : { port: number('ssh-port', 2222), hostKeyFile: join(dataDir, 'ssh_host_ed25519_key') },
                 onError: (error) => {
@@ -225,7 +220,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
     function couldNotStart(error: unknown): string {
         const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
         return code === 'EADDRINUSE'
-            ? 'A port the server needs is already in use. Is it running already? (--telnet-port, --web-port and --ssh-port choose others.)'
+            ? 'A port the server needs is already in use. Is it running already? (--web-port and --ssh-port choose others.)'
             : `The server couldn't start: ${error instanceof Error ? error.message : String(error)}`;
     }
 

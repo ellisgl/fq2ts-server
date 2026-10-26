@@ -1,5 +1,5 @@
 // A terminal at the other end of a network connection, as the input and
-// output a Terminal needs. The connection (telnet or a web socket) passes
+// output a Terminal needs. The connection (SSH or a web socket) passes
 // in what the player types and how big their window is, and sends on what
 // the game writes.
 

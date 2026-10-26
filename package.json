@@ -2,7 +2,7 @@
   "name": "@fq2js/server",
   "version": "0.1.0",
   "private": true,
-  "description": "Multiplayer for @fq2js/engine games: telnet, SSH and the web, accounts with email, SQLite.",
+  "description": "Multiplayer for @fq2js/engine games: SSH and the web, accounts with email, SQLite.",
   "type": "module",
   "license": "MIT",
   "exports": {

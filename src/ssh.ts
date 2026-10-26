@@ -1,5 +1,5 @@
 // Playing over SSH: the connection is encrypted, and anyone gets in (any
-// user name, no password); then it's the same login screen as telnet and
+// user name, no password); then it's the same login screen as on
 // the web. Only a shell is offered: no commands, port forwarding or file
 // transfer (ssh2 turns down whatever isn't listened for).
 
