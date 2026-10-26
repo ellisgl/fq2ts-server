@@ -7,7 +7,7 @@ import { tempDir } from '@fq2js/engine/testing';
 describe('Store', () => {
     test('accounts: names are unique in any case, and looked up in any case', () => {
         const store = new Store(':memory:');
-        expect(store.createAccount('Hero', 'hash', 'hero@example.com')).toEqual({ id: 1, name: 'Hero', passwordHash: 'hash', email: 'hero@example.com', emailConfirmed: false, admin: false, banned: null });
+        expect(store.createAccount('Hero', 'hash', 'hero@example.com')).toEqual({ id: 1, name: 'Hero', passwordHash: 'hash', email: 'hero@example.com', emailConfirmed: false, admin: false, banned: null, lastAddress: null });
         expect(store.createAccount('HERO', 'other', 'x@example.com')).toBeNull();
         expect(store.account('hero')?.name).toBe('Hero');
         expect(store.account('nobody')).toBeNull();
@@ -53,7 +53,7 @@ describe('Store', () => {
         old.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
         old.close();
         const store = new Store(path);
-        expect(store.account('old')).toEqual({ id: 1, name: 'Old', passwordHash: 'h', email: null, emailConfirmed: false, admin: false, banned: null });
+        expect(store.account('old')).toEqual({ id: 1, name: 'Old', passwordHash: 'h', email: null, emailConfirmed: false, admin: false, banned: null, lastAddress: null });
         store.close();
     });
 });

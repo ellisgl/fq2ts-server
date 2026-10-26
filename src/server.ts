@@ -26,6 +26,7 @@ import { Days } from './days.ts';
 import { attack } from './pvp.ts';
 import { adminMenu } from './admin.ts';
 import { DEFAULT_RULES, type Rules } from './rules.ts';
+import { Guard, normalAddress, webAddress } from './guard.ts';
 import { rankings, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2js/engine/text';
@@ -44,6 +45,9 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     // Where the web page listens, if not `host` (127.0.0.1 behind a TLS
     // proxy, while telnet and SSH listen to everyone).
     webHost?: string;
+    // Whether web players' addresses come from X-Forwarded-For (set by the
+    // proxy in front). Without it, behind a proxy they all look like it.
+    trustProxy?: boolean;
     // null turns that way of connecting off; 0 picks a free port.
     telnetPort?: number | null;
     webPort?: number | null;
@@ -114,7 +118,11 @@ class Connection<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     private closed = false;
     private readonly hangUp: () => void;
 
-    public constructor(send: (text: string) => void, hangUp: () => void, name?: string) {
+    // Where the player is connecting from.
+    public readonly address: string;
+
+    public constructor(send: (text: string) => void, hangUp: () => void, address: string, name?: string) {
+        this.address = address;
         this.io = new RemoteIO((text) => {
             if (!this.closed) {
                 send(text);
@@ -171,7 +179,17 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
         store: new Store(options.database, { log, mailbox: rules.mailbox, newsDays: rules.newsDays }),
     };
     const connections = new Set<Connection<F, W>>();
-    const connect = (send: (text: string) => void, hangUp: () => void): Connection<F, W> => new Connection<F, W>(send, hangUp, options.gameName);
+    const connect = (send: (text: string) => void, hangUp: () => void, address: string): Connection<F, W> => new Connection<F, W>(send, hangUp, normalAddress(address), options.gameName);
+    const guard = new Guard({ rules, now: options.now ?? Date.now });
+    // Ends every connection from an address (it's been banned).
+    const kickAddress = (address: string, message: string): void => {
+        for (const connection of [...connections]) {
+            if (connection.address === address) {
+                connection.say(message);
+                connection.close();
+            }
+        }
+    };
     const realm = new Realm<F, W>({ chatWait: rules.chatWaitSeconds * 1000 });
     // Whose connection is whose (to kick them).
     const playingOn = new Map<number, Connection<F, W>>();
@@ -192,6 +210,21 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     const begin = (connection: Connection<F, W>): void => {
         const { term } = connection;
         if (connection.isClosed || connection.session) {
+            return;
+        }
+
+        const banned = shared.store.addressBan(connection.address);
+        if (banned !== null) {
+            log(`Turned away ${connection.address}: it's banned.`);
+            connection.say(`This address is banned from the realm: ${banned}`);
+            connection.close();
+            return;
+        }
+
+        if (!guard.connect(connection.address)) {
+            log(`Turned away ${connection.address}: too many connections.`);
+            connection.say('Too many connections from your address. Please wait a minute.');
+            connection.close();
             return;
         }
 
@@ -248,7 +281,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         D: { help: 'the daily news', run: news(talking) },
                         H: { help: 'fight a player next to you', run: attack({ realm, store: shared.store, days, world: shared.world, items: shared.items, me, now, fightsPerDay: rules.fightsPerDay, goldPercent: rules.pvpGoldPercent, expPercent: rules.pvpExpPercent }) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
-                        ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, log }) } } : {}),
+                        ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, kickAddress, log }) } } : {}),
                         L: { help: 'every player, ranked', run: rankings(realm, shared.store, shared.content.start, shared.items) },
                     },
                     worldStore,
@@ -281,6 +314,17 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             log,
             mailer,
             emailsPerVisit: rules.emailsPerVisit,
+            address: connection.address,
+            loginShut: (name) => {
+                const shut = guard.loginShut(connection.address, name);
+                if (shut !== null) {
+                    log(`Turned away a login from ${connection.address} as ${name}: ${shut}`);
+                }
+                return shut;
+            },
+            loginFailed: (name) => {
+                guard.failed(connection.address, name);
+            },
             ...(options.hashPassword ? { hashPassword: options.hashPassword } : {}),
             ...(options.verifyPassword ? { verifyPassword: options.verifyPassword } : {}),
         });
@@ -348,6 +392,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         () => {
                             socket.end();
                         },
+                        socket.remoteAddress,
                     );
                     bySocket.set(socket, { connection, parser: new TelnetParser(), started: false, pending: [], pendingBytes: 0 });
                     connections.add(connection);
@@ -410,6 +455,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
 
     interface WebData {
         connection: Connection<F, W> | null;
+        address: string;
     }
 
     let web: Server<WebData> | null = null;
@@ -421,7 +467,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             fetch: (request, server) => {
                 const url = new URL(request.url);
                 if (url.pathname === '/ws') {
-                    return server.upgrade(request, { data: { connection: null } }) ? undefined : new Response('Expected a web socket', { status: 400 });
+                    const address = webAddress(server.requestIP(request)?.address ?? null, request.headers.get('x-forwarded-for'), options.trustProxy ?? false);
+                    return server.upgrade(request, { data: { connection: null, address } }) ? undefined : new Response('Expected a web socket', { status: 400 });
                 }
 
                 if (url.pathname === '/') {
@@ -443,6 +490,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         () => {
                             ws.close();
                         },
+                        ws.data.address,
                     );
                     ws.data.connection = connection;
                     connections.add(connection);
@@ -492,8 +540,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             hostKeyFile: options.ssh.hostKeyFile,
             log,
             maxPending: MAX_PENDING,
-            connect: ({ columns, rows }, send, hangUp) => {
-                const connection = connect(send, hangUp);
+            connect: ({ columns, rows }, send, hangUp, address) => {
+                const connection = connect(send, hangUp, address);
                 connection.io.resized(columns, rows);
                 connections.add(connection);
                 begin(connection);
@@ -524,6 +572,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     // Idle players go, and at midnight a new day dawns.
     const idleTimer = setInterval(() => {
         days.check();
+        guard.prune();
         const cutoff = Date.now() - idleMinutes * 60_000;
         for (const connection of connections) {
             if (connection.term.lastInput < cutoff) {

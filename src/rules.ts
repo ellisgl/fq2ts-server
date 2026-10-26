@@ -8,8 +8,10 @@ import { CHAT_WAIT } from './realm.ts';
 import { MAX_EMAILS } from './session.ts';
 import { MAILBOX, NEWS_DAYS } from './store.ts';
 import { LETTERS_PER_VISIT } from './talk.ts';
+import { DEFAULT_GUARD, type GuardRules } from './guard.ts';
 
-export interface Rules {
+// (The guard's rules, on connections and wrong passwords, are among them.)
+export interface Rules extends GuardRules {
     // Fights each player can start against others in a day.
     fightsPerDay: number;
     // How much of the loser's gold the winner of a fight between players
@@ -36,6 +38,7 @@ export const DEFAULT_RULES: Rules = {
     mailbox: MAILBOX,
     newsDays: NEWS_DAYS,
     emailsPerVisit: MAX_EMAILS,
+    ...DEFAULT_GUARD,
 };
 
 // Each rule's command line option (--fights-per-day; FQ2_FIGHTS_PER_DAY in
@@ -57,4 +60,8 @@ export const RULE_OPTIONS = [
     { rule: 'mailbox', option: 'mailbox', help: 'letters kept for each player (the oldest go)', min: 1 },
     { rule: 'newsDays', option: 'news-days', help: 'days the news is kept', min: 1 },
     { rule: 'emailsPerVisit', option: 'emails-per-visit', help: 'emails (codes) a connection can ask for', min: 1 },
+    { rule: 'connectionsPerMinute', option: 'connections-per-minute', help: 'connections an address can make a minute', min: 1 },
+    { rule: 'loginFailuresPerAddress', option: 'login-failures-per-address', help: 'wrong passwords from an address before logins from it stop', min: 1 },
+    { rule: 'loginFailuresPerAccount', option: 'login-failures-per-account', help: 'wrong passwords for an account before logins to it stop', min: 1 },
+    { rule: 'lockoutMinutes', option: 'lockout-minutes', help: '...for how long', min: 1 },
 ] as const satisfies readonly RuleOption[];

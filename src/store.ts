@@ -25,6 +25,8 @@ export interface Account {
     admin: boolean;
     // Why the account is banned, or null if it isn't.
     banned: string | null;
+    // The address it last came in from (null if it never has).
+    lastAddress: string | null;
 }
 
 // How long a code works, and how many guesses it gets.
@@ -295,8 +297,33 @@ export class Store {
         return 'wrong';
     }
 
-    public noteLogin(accountId: number): void {
-        this.db.query('UPDATE accounts SET last_login = $now WHERE id = $id').run({ id: accountId, now: now() });
+    public noteLogin(accountId: number, address: string | null = null): void {
+        this.db.query('UPDATE accounts SET last_login = $now, last_address = COALESCE($address, last_address) WHERE id = $id').run({ id: accountId, now: now(), address });
+    }
+
+    // ---- Bans on addresses
+
+    // Why an address is banned, or null if it isn't.
+    public addressBan(address: string): string | null {
+        const row: unknown = this.db.query('SELECT reason FROM address_bans WHERE address = $address').get({ address });
+        return row === null ? null : field(record(row, 'ban'), 'reason', 'ban', string);
+    }
+
+    public banAddress(address: string, reason: string): void {
+        this.db.query('INSERT INTO address_bans (address, reason, at) VALUES ($address, $reason, $at) ON CONFLICT(address) DO UPDATE SET reason = $reason, at = $at').run({ address, reason, at: now() });
+    }
+
+    // False if it wasn't banned.
+    public unbanAddress(address: string): boolean {
+        return this.db.query('DELETE FROM address_bans WHERE address = $address').run({ address }).changes > 0;
+    }
+
+    public addressBans(): { address: string; reason: string }[] {
+        const rows: unknown = this.db.query('SELECT address, reason FROM address_bans ORDER BY address').all();
+        return (Array.isArray(rows) ? rows : []).map((row: unknown) => {
+            const r = record(row, 'ban');
+            return { address: field(r, 'address', 'ban', string), reason: field(r, 'reason', 'ban', string) };
+        });
     }
 
     // The account's saved player (unchecked), or null if they haven't played.
@@ -329,7 +356,7 @@ export class Store {
 
 const now = (): string => new Date().toISOString();
 
-const ACCOUNT_COLUMNS = 'id, name, password_hash, email, email_confirmed, admin, banned';
+const ACCOUNT_COLUMNS = 'id, name, password_hash, email, email_confirmed, admin, banned, last_address';
 
 function readAccount(row: unknown): Account {
     const r = record(row, 'account');
@@ -342,5 +369,6 @@ function readAccount(row: unknown): Account {
         emailConfirmed: field(r, 'email_confirmed', 'account', oneOf([0, 1])) === 1,
         admin: field(r, 'admin', 'account', oneOf([0, 1])) === 1,
         banned: nullable('banned'),
+        lastAddress: nullable('last_address'),
     };
 }

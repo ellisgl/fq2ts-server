@@ -23,8 +23,9 @@ export interface SshOptions {
     // The most output kept for a player who isn't reading it.
     maxPending: number;
     // A player has a terminal, of this size; `send` writes to it, and
-    // `hangUp` ends the connection.
-    connect(size: { columns: number; rows: number }, send: (text: string) => void, hangUp: () => void): SshPlayer;
+    // `hangUp` ends the connection. `address` is where they're connecting
+    // from.
+    connect(size: { columns: number; rows: number }, send: (text: string) => void, hangUp: () => void, address: string): SshPlayer;
     // The server couldn't listen (its port is taken, for one).
     failed(error: Error): void;
 }
@@ -73,7 +74,7 @@ export function newHostKey(generate: () => string = () => utils.generateKeyPairS
 }
 
 export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, failed }: SshOptions): SshServer {
-    const server = new Server({ hostKeys: [hostKey(hostKeyFile)] }, (client) => {
+    const server = new Server({ hostKeys: [hostKey(hostKeyFile)] }, (client, info) => {
         let shell = false;
         let size = { columns: 80, rows: 25 };
         const timer = setTimeout(() => {
@@ -124,6 +125,7 @@ export function listenSsh({ host, port, hostKeyFile, log, maxPending, connect, f
                         stream.write(text);
                     },
                     hangUp,
+                    info.ip,
                 );
                 session.on('window-change', (done, _reject, info) => {
                     if (info.cols > 0 && info.rows > 0) {

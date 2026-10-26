@@ -111,11 +111,11 @@ async function telnet(port: number, { size = [80, 25] as [number, number] | null
     };
 }
 
-async function browser(port: number): Promise<Client & { ws: WebSocket }> {
+async function browser(port: number, headers: Record<string, string> = {}): Promise<Client & { ws: WebSocket }> {
     let text = '';
     let isClosed = false;
     const model = new ScreenModel();
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers });
     ws.onmessage = (event: MessageEvent<string>) => {
         text += event.data;
         model.feed(event.data);
@@ -547,6 +547,66 @@ describe('admins', () => {
 });
 
 describe('limits and shutting down', () => {
+    test('a banned address is turned away at the door', async () => {
+        const database = join(tempDir(), 'game.sqlite');
+        const store = new Store(database);
+        // (The test connects from this machine.)
+        store.banAddress('127.0.0.1', 'Go away.');
+        store.close();
+        const server = start({ database });
+        const client = await telnet(server.telnetPort ?? 0);
+        await client.sees('This address is banned from the realm: Go away.');
+        await client.closed();
+        expect(logs).toContain("Turned away 127.0.0.1: it's banned.");
+    });
+
+    test("behind a proxy we trust, a web player's address is the one it forwards", async () => {
+        const database = join(tempDir(), 'game.sqlite');
+        const store = new Store(database);
+        store.banAddress('198.51.100.7', 'Spam.');
+        store.close();
+        const forwarded = { 'X-Forwarded-For': '198.51.100.7' };
+
+        const trusting = start({ database, trustProxy: true });
+        const banned = await browser(trusting.webPort ?? 0, forwarded);
+        banned.ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 25 }));
+        await banned.sees('This address is banned from the realm: Spam.');
+        await trusting.stop();
+
+        // Not trusted, the header is anyone's to send, and isn't believed.
+        const careful = start({ database });
+        const client = await browser(careful.webPort ?? 0, forwarded);
+        client.ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 25 }));
+        await client.sees('Log');
+    });
+
+    test('an address can only connect so often', async () => {
+        const server = start({ rules: { connectionsPerMinute: 2 } });
+        const port = server.telnetPort ?? 0;
+        for (let i = 0; i < 2; i++) {
+            await (await telnet(port)).sees('Log');
+        }
+        const third = await telnet(port);
+        await third.sees('Too many connections from your address. Please wait a minute.');
+        await third.closed();
+    });
+
+    test('wrong passwords from new connections still count: logins from the address stop', async () => {
+        const server = start({ rules: { loginFailuresPerAddress: 2 } });
+        const port = server.telnetPort ?? 0;
+        const guess = async (): Promise<Client> => {
+            const client = await telnet(port);
+            await client.sees('Log');
+            client.send('\r');
+            await client.sees('Name:');
+            client.send('nobody\rguess\r');
+            return client;
+        };
+        await (await guess()).sees('Wrong name or password.');
+        await (await guess()).sees('Wrong name or password.');
+        await (await guess()).sees('Too many wrong passwords from your address. Try again in 15 minutes.');
+    });
+
     test('when the realm is full, others are turned away', async () => {
         const server = start({ maxPlayers: 1 });
         const first = await telnet(server.telnetPort ?? 0);

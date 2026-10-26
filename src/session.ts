@@ -28,6 +28,13 @@ const CODE_LENGTH = 6;
 export interface SessionOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // Emails (codes) this connection can ask for (default: MAX_EMAILS).
     emailsPerVisit?: number;
+    // Where the player is connecting from (kept as the account's last
+    // address, for banning it).
+    address?: string;
+    // Why logging in to this account is shut just now (too many wrong
+    // passwords), or null; and a wrong name or password, to count.
+    loginShut?(name: string): string | null;
+    loginFailed?(name: string): void;
     term: Terminal;
     store: Store;
     content: Content<F, W>;
@@ -136,12 +143,19 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
             return null;
         }
 
+        const shut = this.options.loginShut?.(name.trim()) ?? null;
+        if (shut !== null) {
+            await this.pause(`{lightred}${shut}`);
+            return null;
+        }
+
         const account = this.options.store.account(name.trim());
         if (!account) {
             this.wrongPasswords++;
         }
 
         if (!account || !(await this.verify(password, account))) {
+            this.options.loginFailed?.(name.trim());
             await this.pause('{lightred}Wrong name or password.');
             return null;
         }
@@ -459,7 +473,7 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
         }
 
         try {
-            store.noteLogin(account.id);
+            store.noteLogin(account.id, this.options.address ?? null);
             this.options.log(`${account.name} enters the realm.`);
             const game = this.options.makeGame(account, (player) => {
                 store.savePlayer(account.id, player);

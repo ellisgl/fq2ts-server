@@ -12,7 +12,20 @@ import { pick, screenText, typed } from '@fq2js/engine/testing';
 test('every rule has a command line option, and the defaults are as they were', () => {
     const rules: string[] = RULE_OPTIONS.map(({ rule }) => rule);
     expect(rules.sort()).toEqual(Object.keys(DEFAULT_RULES).sort());
-    expect(DEFAULT_RULES).toEqual({ fightsPerDay: 3, pvpGoldPercent: 50, pvpExpPercent: 10, chatWaitSeconds: 1, lettersPerVisit: 10, mailbox: 50, newsDays: 7, emailsPerVisit: 5 });
+    expect(DEFAULT_RULES).toEqual({
+        fightsPerDay: 3,
+        pvpGoldPercent: 50,
+        pvpExpPercent: 10,
+        chatWaitSeconds: 1,
+        lettersPerVisit: 10,
+        mailbox: 50,
+        newsDays: 7,
+        emailsPerVisit: 5,
+        connectionsPerMinute: 20,
+        loginFailuresPerAddress: 10,
+        loginFailuresPerAccount: 20,
+        lockoutMinutes: 15,
+    });
 });
 
 test('the shares of gold and experience a fight between players is for', () => {

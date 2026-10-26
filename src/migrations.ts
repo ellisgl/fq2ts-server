@@ -114,6 +114,19 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: 'Bans on addresses, and where each account last came from',
+        up: (db) => {
+            db.run(`
+                ALTER TABLE accounts ADD COLUMN last_address TEXT;
+                CREATE TABLE address_bans (
+                    address TEXT PRIMARY KEY,
+                    reason TEXT NOT NULL,
+                    at TEXT NOT NULL
+                );
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

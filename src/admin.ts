@@ -1,5 +1,6 @@
 // The admin menu (!), for accounts marked admin: kick a player out of the
-// realm, ban or unban an account, or tell everyone something. Every action
+// realm, ban or unban an account or an address, or tell everyone
+// something. Every action
 // is logged. (bun run admin does the same from the command line, and makes
 // admins.)
 
@@ -10,6 +11,7 @@ import { escapeMarkup } from '@fq2js/engine/text';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
 import type { Speaker } from './talk.ts';
+import { isLocal, normalAddress } from './guard.ts';
 
 export const REASON_LENGTH = 60;
 
@@ -17,16 +19,29 @@ interface Admin<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     realm: Realm<F, W>;
     store: Store;
     me: Speaker;
-    // Ends an account's connection, with a last message for them.
+    // Ends an account's connection, or every connection from an address,
+    // with a last message for them.
     kick(accountId: number, message: string): void;
+    kickAddress(address: string, message: string): void;
     log(line: string): void;
 }
 
-export function adminMenu<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, store, me, kick, log }: Admin<F, W>): Script<F, W> {
+// What an address can be: digits, letters a-f, dots and colons (IPv4 or IPv6).
+const ADDRESS = /^[0-9a-f.:]+$/i;
+
+export function adminMenu<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, store, me, kick, kickAddress, log }: Admin<F, W>): Script<F, W> {
     return async (g) => {
         g.cls();
         g.print('{lightmagenta}The admin menu', '');
-        const choice = await g.choice(['Kick a player out of the realm', 'Ban a player', 'Lift a ban', 'Tell everyone something', 'Never mind']);
+        const choice = await g.choice([
+            'Kick a player out of the realm',
+            'Ban a player',
+            'Ban an address',
+            'Lift a ban on a player',
+            'Lift a ban on an address',
+            'Tell everyone something',
+            'Never mind',
+        ]);
 
         // A line of text under the menu; null if Escape.
         const ask = async (question: string): Promise<string | null> => {
@@ -37,6 +52,12 @@ export function adminMenu<F extends FlagRecord, W extends WorldRecord = WorldRec
         const done = async (text: string): Promise<void> => {
             g.print('', text);
             await g.key();
+        };
+        // Bans an address and puts out whoever's connected from it.
+        const banAddress = (address: string, reason: string): void => {
+            store.banAddress(address, reason);
+            log(`${me.name} banned the address ${address}: ${reason}`);
+            kickAddress(address, `This address is banned from the realm: ${reason}`);
         };
 
         if (choice === 0) {
@@ -87,8 +108,42 @@ export function adminMenu<F extends FlagRecord, W extends WorldRecord = WorldRec
             if (realm.gameOf(account.id)) {
                 kick(account.id, `You are banned from the realm: ${reason}`);
             }
+
+            // Their address too? (Not this machine's: behind a proxy we don't
+            // trust, everyone's comes from it.)
+            const address = account.lastAddress;
+            if (address !== null && !isLocal(address)) {
+                g.cls();
+                g.print(`{white}Ban the address ${escapeMarkup(account.name)} last came from, too?`, '');
+                if ((await g.choice(['Just the account', `The account and ${address}`])) === 1) {
+                    banAddress(address, reason);
+                }
+            }
             await done(`{lightgreen}${escapeMarkup(account.name)} is banned.`);
         } else if (choice === 2) {
+            const typed = await ask('Ban which address?');
+            if (!typed) {
+                return;
+            }
+
+            const address = normalAddress(typed);
+            if (!ADDRESS.test(address)) {
+                await done("{yellow}That isn't an address (like 203.0.113.9).");
+                return;
+            }
+            if (isLocal(address)) {
+                await done("{yellow}That's this machine. (Behind a proxy, everyone looks like it: set FQ2_TRUST_PROXY.)");
+                return;
+            }
+
+            const reason = await ask(`Why is ${address} banned? (Whoever comes from it is told.)`);
+            if (!reason) {
+                return;
+            }
+
+            banAddress(address, reason);
+            await done(`{lightgreen}${address} is banned.`);
+        } else if (choice === 3) {
             const name = await ask('Lift whose ban? (Their name.)');
             if (!name) {
                 return;
@@ -103,7 +158,21 @@ export function adminMenu<F extends FlagRecord, W extends WorldRecord = WorldRec
             store.setBanned(account.id, null);
             log(`${me.name} lifted ${account.name}'s ban.`);
             await done(`{lightgreen}${escapeMarkup(account.name)} can come back.`);
-        } else if (choice === 3) {
+        } else if (choice === 4) {
+            const typed = await ask('Lift the ban on which address?');
+            if (!typed) {
+                return;
+            }
+
+            const address = normalAddress(typed);
+            if (!store.unbanAddress(address)) {
+                await done("{yellow}That address isn't banned.");
+                return;
+            }
+
+            log(`${me.name} lifted the ban on ${address}.`);
+            await done(`{lightgreen}${address} can come back.`);
+        } else if (choice === 5) {
             const text = await ask('Tell everyone:');
             if (!text) {
                 return;

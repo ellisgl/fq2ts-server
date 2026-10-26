@@ -43,6 +43,8 @@ ${prefix}TELNET_PORT, and so on. Options given here win.
                         only; 0.0.0.0 lets other computers in)
   --web-host ADDRESS    where the web page listens, if not --host (say
                         127.0.0.1 behind a TLS proxy)
+  --trust-proxy         web players' addresses come from X-Forwarded-For,
+                        set by the proxy in front (for bans and limits)
   --telnet-port N       telnet port (default: 2323)
   --web-port N          web port (default: 8080); players open http://host:N/
   --ssh-port N          SSH port (default: 2222); players use
@@ -75,6 +77,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
         options: {
             'host': { type: 'string' },
             'web-host': { type: 'string' },
+            'trust-proxy': { type: 'boolean' },
             'telnet-port': { type: 'string' },
             'web-port': { type: 'string' },
             'no-telnet': { type: 'boolean' },
@@ -200,6 +203,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
                 database: join(dataDir, database),
                 host: setting('host', '127.0.0.1'),
                 webHost: setting('web-host', setting('host', '127.0.0.1')),
+                trustProxy: flag('trust-proxy'),
                 telnetPort: flag('no-telnet') ? null : number('telnet-port', 2323),
                 webPort: flag('no-web') ? null : number('web-port', 8080),
                 ssh: flag('no-ssh') ? null : { port: number('ssh-port', 2222), hostKeyFile: join(dataDir, 'ssh_host_ed25519_key') },

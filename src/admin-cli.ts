@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Store, type Account } from './store.ts';
+import { isLocal, normalAddress } from './guard.ts';
 
 const usage = (prefix: string): string => `Usage: admin COMMAND [NAME] [REASON...] [--data DIR]
 
@@ -22,6 +23,10 @@ const usage = (prefix: string): string => `Usage: admin COMMAND [NAME] [REASON..
   ban NAME REASON...     ban NAME; they're told the reason when they try
                          to come in
   unban NAME             lift the ban
+  addresses              the banned addresses
+  ban-address ADDRESS REASON...
+                         ban everyone connecting from ADDRESS
+  unban-address ADDRESS  lift that ban
 
   --data DIR             where the server's database is (default:
                          ${prefix}DATA, else server-data)
@@ -67,6 +72,43 @@ export function runAdmin({ database = 'game.sqlite', args = process.argv.slice(2
             return 0;
         }
 
+        if (command === 'addresses') {
+            for (const { address, reason } of store.addressBans()) {
+                log(`${address.padEnd(40)}  ${reason}`);
+            }
+            return 0;
+        }
+
+        if (command === 'ban-address' || command === 'unban-address') {
+            if (name === undefined) {
+                error(`${command} needs an address.`);
+                return 1;
+            }
+
+            const address = normalAddress(name);
+            if (command === 'unban-address') {
+                if (!store.unbanAddress(address)) {
+                    error(`${address} isn't banned.`);
+                    return 1;
+                }
+                log(`${address} isn't banned now.`);
+                return 0;
+            }
+
+            const why = reason.join(' ').trim();
+            if (isLocal(address)) {
+                error(`${address} is this machine: behind a proxy, everyone looks like it. (Set FQ2_TRUST_PROXY for the real addresses.)`);
+                return 1;
+            }
+            if (!why) {
+                error('A ban needs a reason (whoever comes from the address is told it).');
+                return 1;
+            }
+            store.banAddress(address, why);
+            log(`${address} is banned: ${why}`);
+            return 0;
+        }
+
         if (!['admin', 'unadmin', 'ban', 'unban'].includes(command)) {
             error(`There's no command "${command}". (-h lists them.)`);
             return 1;
@@ -99,8 +141,8 @@ export function runAdmin({ database = 'game.sqlite', args = process.argv.slice(2
     }
 }
 
-function describe({ name, email, emailConfirmed, admin, banned }: Account): string {
-    const parts = [name.padEnd(22), (email ?? '-').padEnd(32), emailConfirmed ? 'confirmed' : 'unconfirmed'];
+function describe({ name, email, emailConfirmed, admin, banned, lastAddress }: Account): string {
+    const parts = [name.padEnd(22), (email ?? '-').padEnd(32), (emailConfirmed ? 'confirmed' : 'unconfirmed').padEnd(11), (lastAddress ?? '-').padEnd(15)];
     if (admin) {
         parts.push('admin');
     }

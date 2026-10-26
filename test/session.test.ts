@@ -19,13 +19,15 @@ interface Setup {
     // The game is made, but fails as it begins.
     brokenStart?: boolean;
     mailFails?: boolean;
+    loginShut?(name: string): string | null;
+    loginFailed?(name: string): void;
 }
 
 // The emails sent in this test, and the time it is (moved on by tests).
 let sent: Email[] = [];
 let clock = 0;
 
-function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false }: Setup = {}) {
+function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false, loginShut, loginFailed }: Setup = {}) {
     const term = new FakeTerminal();
     const logs: string[] = [];
     const released: number[] = [];
@@ -63,6 +65,8 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
             },
         },
         now: () => clock,
+        ...(loginShut ? { loginShut } : {}),
+        ...(loginFailed ? { loginFailed } : {}),
         hashPassword,
         verifyPassword,
     });
@@ -681,6 +685,40 @@ describe('logging in', () => {
         await run.run();
         expect(term.remaining).toBe(0);
         expect(logs).toEqual(['Hero tried to come in, but is banned.']);
+    });
+
+    test('the guard hears of wrong names and passwords, and can shut logins (checking nothing)', async () => {
+        const store = new Store(':memory:');
+        account(store);
+        const failed: string[] = [];
+        let shut: string | null = null;
+        const { run, term } = session(
+            (t) => [
+                ...LOG_IN,
+                ...typed('nobody'),
+                ...typed('secret1'),
+                'x',
+                ...LOG_IN,
+                ...typed('hero'),
+                ...typed('wrong1'),
+                () => {
+                    shut = 'Too many wrong passwords.';
+                    return 'x';
+                },
+                ...LOG_IN,
+                ...typed('hero'),
+                ...typed('secret1'),
+                () => {
+                    expect(row(t.screen, 25).trim()).toBe('Too many wrong passwords.');
+                    return 'x';
+                },
+                LEAVE,
+            ],
+            { store, loginShut: () => shut, loginFailed: (name) => failed.push(name) },
+        );
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(failed).toEqual(['nobody', 'hero']);
     });
 
     test('an account already playing elsewhere is turned away', async () => {
