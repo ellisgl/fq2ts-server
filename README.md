@@ -20,9 +20,13 @@ bun add @fq2ts/server@github:ellisgl/fq2ts-server#v0.1.0
 
 It ships its TypeScript source, which Bun runs as it is.
 
+It needs `@fq2ts/engine` too, named by commit hash in the game's
+`dependencies` and `overrides` (see the engine's README).
+
 ssh2 1.17.0 has to be patched not to load its optional native add-ons, which
-crash Bun, and Bun only applies the patches of the project it installs. So a
-game that runs the server copies [patches/ssh2@1.17.0.patch](patches/ssh2@1.17.0.patch)
+crash Bun. Bun reads this package's `patchedDependencies` but looks for the
+patch in the game's folder, so without it the install fails. A game that
+runs the server copies [patches/ssh2@1.17.0.patch](patches/ssh2@1.17.0.patch)
 into its own `patches/` folder and adds to its `package.json`:
 
 ```json
