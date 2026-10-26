@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { ServerWorld } from '../src/world-state.ts';
 import { Store } from '../src/store.ts';
-import { tempDir } from '@fq2js/engine/testing';
-import { worldView } from '@fq2js/engine/shared';
+import { tempDir } from '@fq2ts/engine/testing';
+import { worldView } from '@fq2ts/engine/shared';
 
 const DEFAULTS = { rings: 0, ringers: [] as readonly string[] };
 

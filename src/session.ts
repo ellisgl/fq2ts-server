@@ -6,15 +6,15 @@
 // forgotten password is reset with another code; changing the address
 // takes the password, then a code sent to the new one.
 
-import { draw, escapeMarkup } from '@fq2js/engine/text';
-import { askText, choose } from '@fq2js/engine/ui';
-import { Disconnected, type Terminal } from '@fq2js/engine/terminal';
-import { restorePlayer, type FlagRecord, type Player } from '@fq2js/engine/player';
-import type { ItemCatalogue } from '@fq2js/engine/items';
-import type { Config, Content, Game } from '@fq2js/engine/game';
+import { draw, escapeMarkup } from '@fq2ts/engine/text';
+import { askText, choose } from '@fq2ts/engine/ui';
+import { Disconnected, type Terminal } from '@fq2ts/engine/terminal';
+import { restorePlayer, type FlagRecord, type Player } from '@fq2ts/engine/player';
+import type { ItemCatalogue } from '@fq2ts/engine/items';
+import type { Config, Content, Game } from '@fq2ts/engine/game';
 import { changedEmail, codeEmail, MAX_EMAIL, validEmail, type CodePurpose, type Mailer } from './mail.ts';
 import { CODE_MINUTES, validName, type Account, type Store } from './store.ts';
-import type { WorldRecord } from '@fq2js/engine/shared';
+import type { WorldRecord } from '@fq2ts/engine/shared';
 
 // Wrong passwords before the connection is closed.
 const MAX_TRIES = 3;

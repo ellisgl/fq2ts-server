@@ -6,13 +6,13 @@
 // safe), not against someone already beaten (1 hitpoint), and only so many
 // fights a day.
 
-import { gearOf, type ItemCatalogue } from '@fq2js/engine/items';
-import type { Monster } from '@fq2js/engine/combat';
-import type { FlagRecord, Player } from '@fq2js/engine/player';
-import type { Script } from '@fq2js/engine/script';
-import type { WorldRecord } from '@fq2js/engine/shared';
-import { escapeMarkup } from '@fq2js/engine/text';
-import type { World } from '@fq2js/engine/world';
+import { gearOf, type ItemCatalogue } from '@fq2ts/engine/items';
+import type { Monster } from '@fq2ts/engine/combat';
+import type { FlagRecord, Player } from '@fq2ts/engine/player';
+import type { Script } from '@fq2ts/engine/script';
+import type { WorldRecord } from '@fq2ts/engine/shared';
+import { escapeMarkup } from '@fq2ts/engine/text';
+import type { World } from '@fq2ts/engine/world';
 import type { Days } from './days.ts';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';

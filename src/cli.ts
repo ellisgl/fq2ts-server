@@ -9,13 +9,13 @@
 import { join, resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import type { Content } from '@fq2js/engine/game';
-import type { FlagRecord } from '@fq2js/engine/player';
-import { loadMods, type LoadedMod } from '@fq2js/engine/mods';
+import type { Content } from '@fq2ts/engine/game';
+import type { FlagRecord } from '@fq2ts/engine/player';
+import { loadMods, type LoadedMod } from '@fq2ts/engine/mods';
 import { startServer, type RunningServer } from './server.ts';
 import { DEFAULT_RULES, RULE_OPTIONS, type Rules } from './rules.ts';
 import { smtpMailer, type Mailer } from './mail.ts';
-import type { WorldRecord } from '@fq2js/engine/shared';
+import type { WorldRecord } from '@fq2ts/engine/shared';
 
 export interface ServerCli<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     content: Content<F, W>;

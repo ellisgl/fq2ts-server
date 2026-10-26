@@ -3,8 +3,8 @@ import { Days, NEW_DAY, dayOf } from '../src/days.ts';
 import { FIGHTS_PER_DAY, asMonster, attack } from '../src/pvp.ts';
 import { Realm } from '../src/realm.ts';
 import { Store } from '../src/store.ts';
-import { content, itemCatalogue, makeGame, newPlayer, scriptContext, testWorld, type TestFlags, type TestWorld } from '@fq2js/engine/fixture';
-import { screenText } from '@fq2js/engine/testing';
+import { content, itemCatalogue, makeGame, newPlayer, scriptContext, testWorld, type TestFlags, type TestWorld } from '@fq2ts/engine/fixture';
+import { screenText } from '@fq2ts/engine/testing';
 
 const HOUR = 3_600_000;
 // Midday, and midnight after it, on the server's clock.

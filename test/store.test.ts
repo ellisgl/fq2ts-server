@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
 import { CODE_MINUTES, CODE_TRIES, Store, validName } from '../src/store.ts';
 import { MIGRATIONS, migrate } from '../src/migrations.ts';
-import { tempDir } from '@fq2js/engine/testing';
+import { tempDir } from '@fq2ts/engine/testing';
 
 describe('Store', () => {
     test('accounts: names are unique in any case, and looked up in any case', () => {

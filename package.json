@@ -1,15 +1,15 @@
 {
-  "name": "@fq2js/server",
+  "name": "@fq2ts/server",
   "version": "0.1.0",
   "private": true,
-  "description": "Multiplayer for @fq2js/engine games: SSH and the web, accounts with email, SQLite.",
+  "description": "Multiplayer for @fq2ts/engine games: SSH and the web, accounts with email, SQLite.",
   "type": "module",
   "license": "MIT",
   "exports": {
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@fq2js/engine": "workspace:*",
+    "@fq2ts/engine": "workspace:*",
     "nodemailer": "^8.0.11",
     "ssh2": "1.17.0"
   }

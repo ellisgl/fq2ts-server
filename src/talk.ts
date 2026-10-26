@@ -3,13 +3,13 @@
 // Everything a player types is escaped before anyone sees it, so it can't
 // colour (or move about) anyone else's screen.
 
-import type { FlagRecord } from '@fq2js/engine/player';
-import type { Monster } from '@fq2js/engine/combat';
-import type { Script } from '@fq2js/engine/script';
-import { escapeMarkup } from '@fq2js/engine/text';
+import type { FlagRecord } from '@fq2ts/engine/player';
+import type { Monster } from '@fq2ts/engine/combat';
+import type { Script } from '@fq2ts/engine/script';
+import { escapeMarkup } from '@fq2ts/engine/text';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
-import type { WorldRecord } from '@fq2js/engine/shared';
+import type { WorldRecord } from '@fq2ts/engine/shared';
 
 // The longest thing that can be said, and a letter's lines.
 export const SAY_LENGTH = 60;

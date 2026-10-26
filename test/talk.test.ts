@@ -2,8 +2,8 @@ import { describe, expect, spyOn, test } from 'bun:test';
 import { CHAT_WAIT, Realm } from '../src/realm.ts';
 import { LETTERS_PER_VISIT, lostFight, mail, news, talk, yell } from '../src/talk.ts';
 import { MAILBOX, NEWS_DAYS, Store } from '../src/store.ts';
-import { makeGame, scriptContext, type TestFlags } from '@fq2js/engine/fixture';
-import { monster, pick, screenText, typed } from '@fq2js/engine/testing';
+import { makeGame, scriptContext, type TestFlags } from '@fq2ts/engine/fixture';
+import { monster, pick, screenText, typed } from '@fq2ts/engine/testing';
 
 const DAY = 86_400_000;
 

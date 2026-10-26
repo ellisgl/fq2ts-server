@@ -6,10 +6,10 @@
 // told about changes (Game.othersChanged, Game.notify) and draws them when
 // it's next waiting for a key.
 
-import type { Figure, Game } from '@fq2js/engine/game';
-import type { FlagRecord } from '@fq2js/engine/player';
-import { escapeMarkup } from '@fq2js/engine/text';
-import type { WorldRecord } from '@fq2js/engine/shared';
+import type { Figure, Game } from '@fq2ts/engine/game';
+import type { FlagRecord } from '@fq2ts/engine/player';
+import { escapeMarkup } from '@fq2ts/engine/text';
+import type { WorldRecord } from '@fq2ts/engine/shared';
 
 // Where a player is.
 export interface Place {

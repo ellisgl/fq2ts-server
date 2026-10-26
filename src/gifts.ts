@@ -3,11 +3,11 @@
 // it's accepted, and then only if the giver is still in the realm with what
 // they offered. An offer lasts two minutes; quest items can't be given.
 
-import { count, take, type ItemCatalogue } from '@fq2js/engine/items';
-import type { FlagRecord } from '@fq2js/engine/player';
-import type { Script } from '@fq2js/engine/script';
-import type { WorldRecord } from '@fq2js/engine/shared';
-import { escapeMarkup } from '@fq2js/engine/text';
+import { count, take, type ItemCatalogue } from '@fq2ts/engine/items';
+import type { FlagRecord } from '@fq2ts/engine/player';
+import type { Script } from '@fq2ts/engine/script';
+import type { WorldRecord } from '@fq2ts/engine/shared';
+import { escapeMarkup } from '@fq2ts/engine/text';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
 import type { Speaker } from './talk.ts';

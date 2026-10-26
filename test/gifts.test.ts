@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { Gifts, OFFER_SECONDS } from '../src/gifts.ts';
 import { Realm } from '../src/realm.ts';
 import { Store } from '../src/store.ts';
-import { itemCatalogue, makeGame, newPlayer, scriptContext, type TestFlags, type TestWorld } from '@fq2js/engine/fixture';
-import { pick, screenText, typed } from '@fq2js/engine/testing';
-import { ItemCatalogue, readItems } from '@fq2js/engine/items';
+import { itemCatalogue, makeGame, newPlayer, scriptContext, type TestFlags, type TestWorld } from '@fq2ts/engine/fixture';
+import { pick, screenText, typed } from '@fq2ts/engine/testing';
+import { ItemCatalogue, readItems } from '@fq2ts/engine/items';
 
 // Ann (1) giving, Bob (2) beside her on the map, with what each hears.
 function setting({ items = itemCatalogue } = {}) {

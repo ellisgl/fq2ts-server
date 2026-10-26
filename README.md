@@ -1,11 +1,11 @@
-# @fq2js/server
+# @fq2ts/server
 
-Multiplayer for `@fq2js/engine` games: SSH and the web (xterm.js in the
+Multiplayer for `@fq2ts/engine` games: SSH and the web (xterm.js in the
 browser; no telnet, which would send passwords in the clear), accounts with
 confirmed email addresses and password resets, and players saved in SQLite. A game runs it with its content:
 
 ```ts
-import { runServer } from '@fq2js/server/cli';
+import { runServer } from '@fq2ts/server/cli';
 runServer({ content, name: 'My Game', gameData: 'path/to/data' });
 ```
 

@@ -3,7 +3,7 @@
 // changes, everyone's screen is redrawn (on their next wait for a key), as
 // what's drawn may depend on it.
 
-import { restoreWorld, type WorldRecord, type WorldStore, type WorldValue } from '@fq2js/engine/shared';
+import { restoreWorld, type WorldRecord, type WorldStore, type WorldValue } from '@fq2ts/engine/shared';
 import type { Store } from './store.ts';
 
 export class ServerWorld implements WorldStore {

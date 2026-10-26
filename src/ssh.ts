@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { Server, utils, type ServerChannel } from 'ssh2';
-import { colorDepth, type ColorDepth } from '@fq2js/engine/screen';
+import { colorDepth, type ColorDepth } from '@fq2ts/engine/screen';
 
 // What the server does with a player who has connected.
 export interface SshPlayer {

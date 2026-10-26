@@ -4,9 +4,9 @@ import { join } from 'node:path';
 import { MAX_EMAILS, RESEND_WAIT, Session } from '../src/session.ts';
 import { Store } from '../src/store.ts';
 import type { Email } from '../src/mail.ts';
-import { Game } from '@fq2js/engine/game';
-import { FakeTerminal, pick, row, screenText, tempDir, typed, type Step } from '@fq2js/engine/testing';
-import { bestiary, config, content, itemCatalogue, newPlayer, testWorld } from '@fq2js/engine/fixture';
+import { Game } from '@fq2ts/engine/game';
+import { FakeTerminal, pick, row, screenText, tempDir, typed, type Step } from '@fq2ts/engine/testing';
+import { bestiary, config, content, itemCatalogue, newPlayer, testWorld } from '@fq2ts/engine/fixture';
 
 // Quick stand-ins for argon2 (the real thing takes a moment per call).
 const hashPassword = (password: string): Promise<string> => Promise.resolve(`hash:${password}`);

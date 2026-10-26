@@ -4,10 +4,10 @@
 // is logged. (bun run admin does the same from the command line, and makes
 // admins.)
 
-import type { FlagRecord } from '@fq2js/engine/player';
-import type { Script } from '@fq2js/engine/script';
-import type { WorldRecord } from '@fq2js/engine/shared';
-import { escapeMarkup } from '@fq2js/engine/text';
+import type { FlagRecord } from '@fq2ts/engine/player';
+import type { Script } from '@fq2ts/engine/script';
+import type { WorldRecord } from '@fq2ts/engine/shared';
+import { escapeMarkup } from '@fq2ts/engine/text';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
 import type { Speaker } from './talk.ts';

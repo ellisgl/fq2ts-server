@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { RemoteIO } from '../src/remote.ts';
-import { Terminal } from '@fq2js/engine/terminal';
+import { Terminal } from '@fq2ts/engine/terminal';
 
 test('a Terminal on a RemoteIO reads what is typed and sends what it draws', async () => {
     const sent: string[] = [];

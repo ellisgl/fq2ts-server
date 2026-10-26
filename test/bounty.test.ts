@@ -4,8 +4,8 @@ import { attack } from '../src/pvp.ts';
 import { Days } from '../src/days.ts';
 import { Realm } from '../src/realm.ts';
 import { Store } from '../src/store.ts';
-import { content, itemCatalogue, makeGame, newPlayer, scriptContext, testWorld, type TestFlags, type TestWorld } from '@fq2js/engine/fixture';
-import { pick, screenText, typed } from '@fq2js/engine/testing';
+import { content, itemCatalogue, makeGame, newPlayer, scriptContext, testWorld, type TestFlags, type TestWorld } from '@fq2ts/engine/fixture';
+import { pick, screenText, typed } from '@fq2ts/engine/testing';
 
 let random: Mock<() => number> | null = null;
 afterEach(() => {

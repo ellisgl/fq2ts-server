@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
 import { MIGRATIONS, migrate, type Migration } from '../src/migrations.ts';
 import { Store } from '../src/store.ts';
-import { tempDir } from '@fq2js/engine/testing';
+import { tempDir } from '@fq2ts/engine/testing';
 
 const version = (db: Database): unknown => db.query('PRAGMA user_version').get();
 const tables = (db: Database): unknown[] => db.query("SELECT name FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%' ORDER BY name").all();

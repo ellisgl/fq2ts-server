@@ -10,9 +10,9 @@ import { ScreenModel } from './screen-model.ts';
 import { hostKey, newHostKey } from '../src/ssh.ts';
 import { Store } from '../src/store.ts';
 import { runAdmin } from '../src/admin-cli.ts';
-import { tempDir } from '@fq2js/engine/testing';
-import { content, FIXTURE_DATA, type TestFlags } from '@fq2js/engine/fixture';
-import { MOD_API, readMod, type ModContext } from '@fq2js/engine/mods';
+import { tempDir } from '@fq2ts/engine/testing';
+import { content, FIXTURE_DATA, type TestFlags } from '@fq2ts/engine/fixture';
+import { MOD_API, readMod, type ModContext } from '@fq2ts/engine/mods';
 
 const DOWN = '\x1b[B';
 

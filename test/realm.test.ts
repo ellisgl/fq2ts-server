@@ -2,8 +2,8 @@ import { describe, expect, spyOn, test } from 'bun:test';
 import { Realm, OTHER_PLAYER } from '../src/realm.ts';
 import { rankings, whoIsOnline } from '../src/lists.ts';
 import { Store } from '../src/store.ts';
-import { makeGame, newPlayer, scriptContext, testWorld, type TestFlags } from '@fq2js/engine/fixture';
-import { screenText } from '@fq2js/engine/testing';
+import { makeGame, newPlayer, scriptContext, testWorld, type TestFlags } from '@fq2ts/engine/fixture';
+import { screenText } from '@fq2ts/engine/testing';
 
 // A member's game, with what the realm tells it counted.
 function member(realm: Realm<TestFlags>, id: number, name: string) {

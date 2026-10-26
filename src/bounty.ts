@@ -3,11 +3,11 @@
 // then; whoever beats that player in a fight collects all of it (see
 // pvp.ts). Who posted it isn't said; the news says how much.
 
-import type { FlagRecord } from '@fq2js/engine/player';
-import type { Script } from '@fq2js/engine/script';
-import type { WorldRecord } from '@fq2js/engine/shared';
-import { escapeMarkup } from '@fq2js/engine/text';
-import type { World } from '@fq2js/engine/world';
+import type { FlagRecord } from '@fq2ts/engine/player';
+import type { Script } from '@fq2ts/engine/script';
+import type { WorldRecord } from '@fq2ts/engine/shared';
+import { escapeMarkup } from '@fq2ts/engine/text';
+import type { World } from '@fq2ts/engine/world';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
 import type { Speaker } from './talk.ts';

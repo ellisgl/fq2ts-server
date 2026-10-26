@@ -1,13 +1,13 @@
 // The keys the server adds to the game: P lists who's playing and where, L
 // every player there is, ranked by experience.
 
-import type { FlagRecord } from '@fq2js/engine/player';
-import type { Script } from '@fq2js/engine/script';
-import { escapeMarkup } from '@fq2js/engine/text';
-import type { World } from '@fq2js/engine/world';
+import type { FlagRecord } from '@fq2ts/engine/player';
+import type { Script } from '@fq2ts/engine/script';
+import { escapeMarkup } from '@fq2ts/engine/text';
+import type { World } from '@fq2ts/engine/world';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
-import type { WorldRecord } from '@fq2js/engine/shared';
+import type { WorldRecord } from '@fq2ts/engine/shared';
 
 const NAME_WIDTH = 22;
 

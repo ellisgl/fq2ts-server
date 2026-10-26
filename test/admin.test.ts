@@ -4,8 +4,8 @@ import { runAdmin } from '../src/admin-cli.ts';
 import { adminMenu } from '../src/admin.ts';
 import { Realm } from '../src/realm.ts';
 import { Store } from '../src/store.ts';
-import { makeGame, scriptContext, type TestFlags, type TestWorld } from '@fq2js/engine/fixture';
-import { pick, screenText, tempDir, typed } from '@fq2js/engine/testing';
+import { makeGame, scriptContext, type TestFlags, type TestWorld } from '@fq2ts/engine/fixture';
+import { pick, screenText, tempDir, typed } from '@fq2ts/engine/testing';
 
 describe('bun run admin', () => {
     // A data folder with a database holding Ann and Bob.

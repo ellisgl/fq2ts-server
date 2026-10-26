@@ -3,10 +3,10 @@
 // and the content's daily flags (FQ2's one drink a day). Players in the
 // realm then are reset at once; the others when they next arrive.
 
-import type { Content } from '@fq2js/engine/game';
-import type { FlagRecord, Player } from '@fq2js/engine/player';
-import type { WorldRecord } from '@fq2js/engine/shared';
-import { record } from '@fq2js/engine/validate';
+import type { Content } from '@fq2ts/engine/game';
+import type { FlagRecord, Player } from '@fq2ts/engine/player';
+import type { WorldRecord } from '@fq2ts/engine/shared';
+import { record } from '@fq2ts/engine/validate';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
 

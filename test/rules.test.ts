@@ -6,8 +6,8 @@ import { Realm } from '../src/realm.ts';
 import { Store } from '../src/store.ts';
 import { asMonster } from '../src/pvp.ts';
 import { mail } from '../src/talk.ts';
-import { itemCatalogue, newPlayer, scriptContext, type TestFlags, type TestWorld } from '@fq2js/engine/fixture';
-import { pick, screenText, typed } from '@fq2js/engine/testing';
+import { itemCatalogue, newPlayer, scriptContext, type TestFlags, type TestWorld } from '@fq2ts/engine/fixture';
+import { pick, screenText, typed } from '@fq2ts/engine/testing';
 
 test('every rule has a command line option, and the defaults are as they were', () => {
     const rules: string[] = RULE_OPTIONS.map(({ rule }) => rule);

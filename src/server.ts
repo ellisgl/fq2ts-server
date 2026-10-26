@@ -9,16 +9,16 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Server, ServerWebSocket } from 'bun';
-import { Terminal } from '@fq2js/engine/terminal';
-import type { ColorDepth } from '@fq2js/engine/screen';
-import type { World } from '@fq2js/engine/world';
-import { Game, type Config, type Content } from '@fq2js/engine/game';
-import type { Bestiary } from '@fq2js/engine/combat';
-import type { ItemCatalogue } from '@fq2js/engine/items';
-import { readGameData } from '@fq2js/engine/data';
-import { applyMods, describeMod, type LoadedMod } from '@fq2js/engine/mods';
-import type { FlagRecord } from '@fq2js/engine/player';
-import { field, integer, oneOf, record, string } from '@fq2js/engine/validate';
+import { Terminal } from '@fq2ts/engine/terminal';
+import type { ColorDepth } from '@fq2ts/engine/screen';
+import type { World } from '@fq2ts/engine/world';
+import { Game, type Config, type Content } from '@fq2ts/engine/game';
+import type { Bestiary } from '@fq2ts/engine/combat';
+import type { ItemCatalogue } from '@fq2ts/engine/items';
+import { readGameData } from '@fq2ts/engine/data';
+import { applyMods, describeMod, type LoadedMod } from '@fq2ts/engine/mods';
+import type { FlagRecord } from '@fq2ts/engine/player';
+import { field, integer, oneOf, record, string } from '@fq2ts/engine/validate';
 import { RemoteIO } from './remote.ts';
 import { logMailer, type Mailer } from './mail.ts';
 import { Session } from './session.ts';
@@ -33,10 +33,10 @@ import { DEFAULT_RULES, type Rules } from './rules.ts';
 import { Guard, normalAddress, webAddress } from './guard.ts';
 import { rankings, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
-import { escapeMarkup } from '@fq2js/engine/text';
+import { escapeMarkup } from '@fq2ts/engine/text';
 import { listenSsh, type SshServer } from './ssh.ts';
 import { Store } from './store.ts';
-import type { WorldRecord } from '@fq2js/engine/shared';
+import type { WorldRecord } from '@fq2ts/engine/shared';
 
 export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     content: Content<F, W>;
@@ -70,7 +70,7 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     // The time, in milliseconds (for tests: days turn at midnight by it).
     now?(): number;
     log?(line: string): void;
-    // Mods to add to the game (see @fq2js/engine/mods: loadMods reads them).
+    // Mods to add to the game (see @fq2ts/engine/mods: loadMods reads them).
     mods?: readonly LoadedMod[];
     // Sends the codes that confirm addresses and reset passwords (default:
     // writes them to the log).

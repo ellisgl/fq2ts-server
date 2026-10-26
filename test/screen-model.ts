@@ -6,7 +6,7 @@
 // It knows what the engine sends: cursor moves (CSI row;col H), clearing
 // (CSI 2J), carriage returns and line feeds. Colours and modes are skipped.
 
-import { HEIGHT, WIDTH } from '@fq2js/engine/screen';
+import { HEIGHT, WIDTH } from '@fq2ts/engine/screen';
 
 export class ScreenModel {
     private readonly rows: string[][] = Array.from({ length: HEIGHT }, () => Array.from({ length: WIDTH }, () => ' '));
