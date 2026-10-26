@@ -109,7 +109,11 @@ describe('fights between players', () => {
         const days = new Days({ store, content, realm, now: () => MIDDAY });
         const bobs = makeGame({ player: bob });
         // (Bob is out on the map, waiting.)
-        Object.defineProperty(bobs.game, 'waiting', { get: () => true });
+        let waiting = true;
+        Object.defineProperty(bobs.game, 'waiting', { get: () => waiting });
+        const busy = (): void => {
+            waiting = false;
+        };
         const heard: string[] = [];
         spyOn(bobs.game, 'notify').mockImplementation((text) => {
             heard.push(text);
@@ -120,7 +124,7 @@ describe('fights between players', () => {
         realm.claim(1, 'Ann');
         realm.moved(1, { screen: 1, x: 10, y: 10 });
         const h = attack({ realm, store, days, world, items: itemCatalogue, me: { id: 1, name: 'Ann' }, now: () => MIDDAY });
-        return { store, days, h, bob: bobs.game, heard, realm };
+        return { store, days, h, bob: bobs.game, heard, realm, busy };
     }
 
     test('winning: Ann takes half of Bob\'s gold and some experience; he is left on 1 hp, told, and saved; the news has it', async () => {
@@ -183,12 +187,12 @@ describe('fights between players', () => {
         const { g, term } = scriptContext({
             player: newPlayer({ gold: 10 }),
             steps: [
+                // (Ann picks Bob; he leaves as she swings.)
+                'enter',
                 () => {
-                    // (Bob leaves as Ann swings.)
                     realm.release(2);
                     return 'enter';
                 },
-                'enter',
                 'x',
                 'x',
             ],
@@ -197,6 +201,45 @@ describe('fights between players', () => {
         expect(term.remaining).toBe(0);
         expect(g.gold).toBe(10);
         expect(store.loadPlayer(2)).toMatchObject({ gold: 999 });
+    });
+
+    test("if Bob gets busy (a fight, a shop...) while Ann chooses, there's no fight", async () => {
+        const { h, heard, days, busy } = arena();
+        const { g, term } = scriptContext({
+            steps: [
+                () => {
+                    // (Bob walks into a fight of his own as Ann picks him.)
+                    busy();
+                    return 'enter';
+                },
+                () => {
+                    expect(screenText(term.screen)).toContain('Bob has moved on.');
+                    return 'x';
+                },
+            ],
+        });
+        await h(g);
+        expect(term.remaining).toBe(0);
+        expect(heard).toEqual([]);
+        expect(days.fights(1)).toBe(0);
+    });
+
+    test("if Bob walks away while Ann chooses, there's no fight", async () => {
+        const { h, heard, realm } = arena();
+        const { g, term } = scriptContext({
+            steps: [
+                () => {
+                    realm.moved(2, { screen: 1, x: 40, y: 15 });
+                    return 'enter';
+                },
+                () => {
+                    expect(screenText(term.screen)).toContain('Bob has moved on.');
+                    return 'x';
+                },
+            ],
+        });
+        await h(g);
+        expect(heard).toEqual([]);
     });
 
     test('choosing no one fights no one', async () => {

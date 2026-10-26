@@ -92,13 +92,23 @@ export function attack<F extends FlagRecord, W extends WorldRecord = WorldRecord
         g.cls();
         g.print('{lightred}Fight whom?', '');
         const picked = await g.choice([...near.map(({ name }) => escapeMarkup(name)), 'No one']);
-        const target = near[picked];
+        const chosen = near[picked];
+        if (!chosen) {
+            return;
+        }
+
+        // While the player chose, the target may have walked off, or into a
+        // scene or a fight of their own: they must still be next to them,
+        // waiting on the map.
+        const name = escapeMarkup(chosen.name);
+        const target = realm.near(me.id).find(({ accountId, game }) => accountId === chosen.accountId && game === chosen.game);
         if (!target) {
+            g.print('', `{yellow}${name} has moved on.`);
+            await g.key();
             return;
         }
 
         const them = target.game.playing;
-        const name = escapeMarkup(target.name);
         if (them.hp <= 1) {
             g.print('', `{yellow}${name} is in no state to fight.`);
             await g.key();
