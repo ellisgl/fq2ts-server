@@ -287,6 +287,19 @@ describe('the realm', () => {
         await bob.sees('The bell has rung 2 times.');
     });
 
+    test("the server's rules are used: with no fights a day, there's no fighting", async () => {
+        const server = start({ rules: { fightsPerDay: 0 } });
+        const port = server.telnetPort ?? 0;
+        const ann = await telnet(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        const bob = await telnet(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        ann.send('h');
+        await ann.sees("You've fought enough for one day.");
+    });
+
     test('H attacks a player next to you; they hear of it', async () => {
         const server = start();
         const port = server.telnetPort ?? 0;

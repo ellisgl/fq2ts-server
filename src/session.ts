@@ -26,6 +26,8 @@ export const MAX_EMAILS = 5;
 const CODE_LENGTH = 6;
 
 export interface SessionOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
+    // Emails (codes) this connection can ask for (default: MAX_EMAILS).
+    emailsPerVisit?: number;
     term: Terminal;
     store: Store;
     content: Content<F, W>;
@@ -400,7 +402,7 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
             return true;
         }
 
-        if (this.emailsSent >= MAX_EMAILS) {
+        if (this.emailsSent >= (this.options.emailsPerVisit ?? MAX_EMAILS)) {
             await this.pause("{yellow}That's all the emails for this visit.");
             return false;
         }

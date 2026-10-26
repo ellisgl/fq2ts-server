@@ -34,7 +34,7 @@ export const CODE_TRIES = 5;
 export type CodeCheck = 'right' | 'wrong' | 'none';
 
 // The most letters kept for a player (the oldest go first), and how long
-// the news is kept.
+// the news is kept, unless the server's rules say otherwise.
 export const MAILBOX = 50;
 export const NEWS_DAYS = 7;
 
@@ -61,11 +61,15 @@ export function validName(name: string): boolean {
 
 export class Store {
     private readonly db: Database;
+    private readonly mailbox: number;
+    private readonly newsDays: number;
 
     // `path` is a file, or ':memory:' for a database that's thrown away. The
     // database is brought up to date (see migrations.ts), and each step
     // taken is logged.
-    public constructor(path: string, { log = () => undefined }: { log?(line: string): void } = {}) {
+    public constructor(path: string, { log = () => undefined, mailbox = MAILBOX, newsDays = NEWS_DAYS }: { log?(line: string): void; mailbox?: number; newsDays?: number } = {}) {
+        this.mailbox = mailbox;
+        this.newsDays = newsDays;
         this.db = new Database(path, { create: true, strict: true });
         this.db.run('PRAGMA journal_mode = WAL');
         for (const step of migrate(this.db)) {
@@ -156,7 +160,7 @@ export class Store {
         this.db.query('INSERT INTO letters (account_id, sender, text, sent_at) VALUES ($id, $from, $text, $at)').run({ id: accountId, from, text, at });
         this.db
             .query('DELETE FROM letters WHERE account_id = $id AND id NOT IN (SELECT id FROM letters WHERE account_id = $id ORDER BY sent_at DESC, id DESC LIMIT $keep)')
-            .run({ id: accountId, keep: MAILBOX });
+            .run({ id: accountId, keep: this.mailbox });
     }
 
     // A player's letters, newest first.
@@ -185,10 +189,10 @@ export class Store {
 
     // ---- The news
 
-    // A line of news (news older than NEWS_DAYS is let go).
+    // A line of news (news older than the days it's kept is let go).
     public addNews(text: string, at: number): void {
         this.db.query('INSERT INTO news (text, at) VALUES ($text, $at)').run({ text, at });
-        this.db.query('DELETE FROM news WHERE at < $before').run({ before: at - NEWS_DAYS * 86_400_000 });
+        this.db.query('DELETE FROM news WHERE at < $before').run({ before: at - this.newsDays * 86_400_000 });
     }
 
     // The news since a time, newest first.

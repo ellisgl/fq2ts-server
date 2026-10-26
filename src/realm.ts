@@ -36,9 +36,12 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // When each member last said something.
     private readonly lastSaid = new Map<number, number>();
     private readonly now: () => number;
+    private readonly chatWait: number;
 
-    public constructor({ now = Date.now }: { now?(): number } = {}) {
+    // `chatWait`: how long, in milliseconds, before a member can speak again.
+    public constructor({ now = Date.now, chatWait = CHAT_WAIT }: { now?(): number; chatWait?: number } = {}) {
         this.now = now;
+        this.chatWait = chatWait;
     }
 
     // Takes an account into the realm; false if it's in already (playing
@@ -152,7 +155,7 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     public maySpeak(accountId: number): boolean {
         const now = this.now();
         const last = this.lastSaid.get(accountId);
-        if (last !== undefined && now - last < CHAT_WAIT) {
+        if (last !== undefined && now - last < this.chatWait) {
             return false;
         }
 

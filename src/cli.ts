@@ -13,6 +13,7 @@ import type { Content } from '@fq2js/engine/game';
 import type { FlagRecord } from '@fq2js/engine/player';
 import { loadMods, type LoadedMod } from '@fq2js/engine/mods';
 import { startServer, type RunningServer } from './server.ts';
+import { DEFAULT_RULES, RULE_OPTIONS, type Rules } from './rules.ts';
 import { smtpMailer, type Mailer } from './mail.ts';
 import type { WorldRecord } from '@fq2js/engine/shared';
 
@@ -61,7 +62,11 @@ ${prefix}TELNET_PORT, and so on. Options given here win.
   --smtp-user NAME      who to log in to it as; the password is only read
                         from the environment, as ${prefix}SMTP_PASSWORD
   --mail-from ADDRESS   who the emails are from (default: the --smtp-user)
-  -h, --help            show this help`;
+  -h, --help            show this help
+
+Game rules (whole numbers):
+
+${RULE_OPTIONS.map(({ rule, option, help }) => `  --${`${option} N`.padEnd(22)}${help} (default: ${DEFAULT_RULES[rule]})`).join('\n')}`;
 
 // Runs the server until it's stopped (Ctrl-C), or exits if it can't start.
 export async function runServer<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ content, gameData, name, database = 'game.sqlite', args = process.argv.slice(2), envPrefix = 'FQ2_' }: ServerCli<F, W>): Promise<void> {
@@ -84,6 +89,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
             'smtp-port': { type: 'string' },
             'smtp-user': { type: 'string' },
             'mail-from': { type: 'string' },
+            ...Object.fromEntries(RULE_OPTIONS.map(({ option }) => [option, { type: 'string' as const }])),
             'help': { type: 'boolean', short: 'h', default: false },
         },
     });
@@ -93,7 +99,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
         process.exit(0);
     }
 
-    type Name = Exclude<keyof typeof values, 'help'>;
+    type Name = Exclude<keyof typeof values, 'help'> | (typeof RULE_OPTIONS)[number]['option'];
 
     // An option's environment variable: --telnet-port is FQ2_TELNET_PORT.
     const envName = (name: Name): string => `${envPrefix}${name.toUpperCase().replaceAll('-', '_')}`;
@@ -106,10 +112,11 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
     };
 
     // An option from the command line, else the environment, else its default.
+    const parsed = new Map<string, unknown>(Object.entries(values));
     function setting(name: Name): string | undefined;
     function setting(name: Name, fallback: string): string;
     function setting(name: Name, fallback?: string): string | undefined {
-        const given = values[name];
+        const given = parsed.get(name);
         if (typeof given === 'string') {
             return given;
         }
@@ -118,13 +125,28 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
         return env === undefined || env === '' ? fallback : env;
     }
 
+    // The game rules, each within its bounds.
+    function readRules(): Rules {
+        const rules: Rules = { ...DEFAULT_RULES };
+        for (const entry of RULE_OPTIONS) {
+            const { rule, option, min } = entry;
+            const max = 'max' in entry ? entry.max : undefined;
+            const value = number(option, DEFAULT_RULES[rule]);
+            if (value < min || (max !== undefined && value > max)) {
+                fail(`${both(option)} must be ${max === undefined ? `at least ${min}` : `${min} to ${max}`}, not ${value}.`);
+            }
+            rules[rule] = value;
+        }
+        return rules;
+    }
+
     function number(name: Name, fallback: number): number {
         const value = setting(name, String(fallback));
         return /^\d+$/.test(value) ? Number(value) : fail(`${both(name)} must be a whole number, not "${value}".`);
     }
 
     function flag(name: Name): boolean {
-        if (values[name] === true) {
+        if (parsed.get(name) === true) {
             return true;
         }
 
@@ -187,6 +209,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
                 maxPlayers: number('max-players', 50),
                 mods,
                 idleMinutes: number('idle-minutes', 30),
+                rules: readRules(),
                 ...(mail ? { mailer: mail } : {}),
             });
         } catch (error) {

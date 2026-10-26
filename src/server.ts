@@ -25,6 +25,7 @@ import { ServerWorld } from './world-state.ts';
 import { Days } from './days.ts';
 import { attack } from './pvp.ts';
 import { adminMenu } from './admin.ts';
+import { DEFAULT_RULES, type Rules } from './rules.ts';
 import { rankings, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2js/engine/text';
@@ -54,6 +55,9 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     // A way of connecting failed after starting (its port was taken).
     onError?(error: Error): void;
     maxPlayers?: number;
+    // The game rules (fights a day, what's won, chat, letters, news...);
+    // those not given are the defaults (see rules.ts).
+    rules?: Partial<Rules>;
     idleMinutes?: number;
     // How often to look for idle players, in milliseconds (default: 30s).
     idleCheck?: number;
@@ -154,6 +158,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
         console.log(`${new Date().toISOString()} ${line}`);
     });
     const mailer = options.mailer ?? logMailer(log);
+    const rules: Rules = { ...DEFAULT_RULES, ...options.rules };
     const { config, ...data } = readGameData(dataDir);
     const mods = options.mods ?? [];
     for (const mod of mods) {
@@ -163,11 +168,11 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     const shared: Shared<F, W> = {
         ...applyMods({ content, ...data }, mods),
         config,
-        store: new Store(options.database, { log }),
+        store: new Store(options.database, { log, mailbox: rules.mailbox, newsDays: rules.newsDays }),
     };
     const connections = new Set<Connection<F, W>>();
     const connect = (send: (text: string) => void, hangUp: () => void): Connection<F, W> => new Connection<F, W>(send, hangUp, options.gameName);
-    const realm = new Realm<F, W>();
+    const realm = new Realm<F, W>({ chatWait: rules.chatWaitSeconds * 1000 });
     // Whose connection is whose (to kick them).
     const playingOn = new Map<number, Connection<F, W>>();
     const kick = (accountId: number, message: string): void => {
@@ -239,9 +244,9 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                     keys: {
                         T: { help: 'say something to the players here', run: talk(talking) },
                         Y: { help: 'yell to everyone in the realm', run: yell(talking) },
-                        W: { help: 'your mail: read and write letters', run: mail(talking) },
+                        W: { help: 'your mail: read and write letters', run: mail({ ...talking, lettersPerVisit: rules.lettersPerVisit }) },
                         D: { help: 'the daily news', run: news(talking) },
-                        H: { help: 'fight a player next to you', run: attack({ realm, store: shared.store, days, world: shared.world, items: shared.items, me, now }) },
+                        H: { help: 'fight a player next to you', run: attack({ realm, store: shared.store, days, world: shared.world, items: shared.items, me, now, fightsPerDay: rules.fightsPerDay, goldPercent: rules.pvpGoldPercent, expPercent: rules.pvpExpPercent }) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
                         ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, log }) } } : {}),
                         L: { help: 'every player, ranked', run: rankings(realm, shared.store, shared.content.start, shared.items) },
@@ -275,6 +280,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             },
             log,
             mailer,
+            emailsPerVisit: rules.emailsPerVisit,
             ...(options.hashPassword ? { hashPassword: options.hashPassword } : {}),
             ...(options.verifyPassword ? { verifyPassword: options.verifyPassword } : {}),
         });

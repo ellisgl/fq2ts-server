@@ -1,8 +1,8 @@
 // Fights between players (H): next to someone on your screen, out on the
 // map, you can attack them. You fight them as you would a monster made of
 // their stats; they're told at once, and of how it ended. The loser gives
-// the winner half their gold and is left on 1 hitpoint, and the winner gets
-// some experience. Not on safe screens (interiors, and screens marked
+// the winner a share of their gold (half, by default) and is left on 1
+// hitpoint, and the winner gets some experience. Not on safe screens (interiors, and screens marked
 // safe), not against someone already beaten (1 hitpoint), and only so many
 // fights a day.
 
@@ -18,7 +18,11 @@ import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
 import type { Speaker } from './talk.ts';
 
+// Unless the server's rules say otherwise: fights a day, and the shares of
+// the loser's gold and experience the winner gets, in percent.
 export const FIGHTS_PER_DAY = 3;
+export const PVP_GOLD_PERCENT = 50;
+export const PVP_EXP_PERCENT = 10;
 
 interface Pvp<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     realm: Realm<F, W>;
@@ -28,12 +32,15 @@ interface Pvp<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     items: ItemCatalogue;
     me: Speaker;
     now?(): number;
+    fightsPerDay?: number;
+    goldPercent?: number;
+    expPercent?: number;
 }
 
 // Another player, as a monster to fight: their hitpoints now, their
 // strength and weapon to hit with, their defence and armour to take blows.
-// Their gold and experience are what the winner gets.
-export function asMonster<F extends FlagRecord>(name: string, player: Player<F>, items: ItemCatalogue): Monster {
+// Its gold and experience are the shares of theirs the winner gets.
+export function asMonster<F extends FlagRecord>(name: string, player: Player<F>, items: ItemCatalogue, { goldPercent = PVP_GOLD_PERCENT, expPercent = PVP_EXP_PERCENT } = {}): Monster {
     const gear = gearOf(player, items);
     const weapon = player.weapon === null ? 'fists' : items.get(player.weapon).name;
     const pronoun = player.sex === 'female' ? 'she' : 'he';
@@ -43,15 +50,28 @@ export function asMonster<F extends FlagRecord>(name: string, player: Player<F>,
         pronoun,
         hp: Math.max(1, player.hp),
         defense: player.defense + gear.armour,
-        gold: Math.trunc(player.gold / 2),
-        exp: Math.max(1, Math.trunc(player.exp / 10)),
+        gold: share(player.gold, goldPercent),
+        exp: Math.max(1, share(player.exp, expPercent)),
         attacks: [{ text: `swings ${pronoun === 'she' ? 'her' : 'his'} ${weapon} at you`, power: player.strength + gear.weapon }],
         kill: '',
         after: {},
     };
 }
 
-export function attack<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, store, days, world, items, me, now = Date.now }: Pvp<F, W>): Script<F, W> {
+const share = (amount: number, percent: number): number => Math.trunc((amount * percent) / 100);
+
+export function attack<F extends FlagRecord, W extends WorldRecord = WorldRecord>({
+    realm,
+    store,
+    days,
+    world,
+    items,
+    me,
+    now = Date.now,
+    fightsPerDay = FIGHTS_PER_DAY,
+    goldPercent = PVP_GOLD_PERCENT,
+    expPercent = PVP_EXP_PERCENT,
+}: Pvp<F, W>): Script<F, W> {
     return async (g) => {
         if (world.isSafe(g.screenNumber)) {
             g.write('{yellow}No fighting here: this is a safe place.');
@@ -64,7 +84,7 @@ export function attack<F extends FlagRecord, W extends WorldRecord = WorldRecord
             return;
         }
 
-        if (days.fights(me.id) >= FIGHTS_PER_DAY) {
+        if (days.fights(me.id) >= fightsPerDay) {
             g.write("{yellow}You've fought enough for one day.");
             return;
         }
@@ -87,11 +107,11 @@ export function attack<F extends FlagRecord, W extends WorldRecord = WorldRecord
 
         days.fought(me.id);
         realm.toMember(target.accountId, `{lightred}${escapeMarkup(me.name)} attacks you!`);
-        const monster = asMonster(target.name, them, items);
+        const monster = asMonster(target.name, them, items, { goldPercent, expPercent });
         let lost = 0;
         const result = await g.fight(monster, {
             defeat: (player) => {
-                lost = Math.trunc(player.gold / 2);
+                lost = share(player.gold, goldPercent);
                 player.gold -= lost;
                 player.hp = 1;
                 return `${name} beats you, and takes $${lost}.`;

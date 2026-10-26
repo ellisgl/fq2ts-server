@@ -29,6 +29,8 @@ interface Talk<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     store: Store;
     me: Speaker;
     now?(): number;
+    // Letters one visit can send (default: LETTERS_PER_VISIT).
+    lettersPerVisit?: number;
 }
 
 const NOT_SO_FAST = '{yellow}Not so fast! Wait a moment before saying more.';
@@ -72,7 +74,7 @@ export function yell<F extends FlagRecord, W extends WorldRecord = WorldRecord>(
 }
 
 // W: the player's letters, and writing one to another player.
-export function mail<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, store, me, now = Date.now }: Talk<F, W>): Script<F, W> {
+export function mail<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, store, me, now = Date.now, lettersPerVisit = LETTERS_PER_VISIT }: Talk<F, W>): Script<F, W> {
     let sent = 0;
     return async (g) => {
         const letters = store.letters(me.id);
@@ -89,7 +91,7 @@ export function mail<F extends FlagRecord, W extends WorldRecord = WorldRecord>(
             await g.scroll(lines.length ? lines : ['{gray}No letters.'], 'Your letters');
             store.markLettersRead(me.id);
         } else if (choice === 1) {
-            if (sent >= LETTERS_PER_VISIT) {
+            if (sent >= lettersPerVisit) {
                 g.print('', "{yellow}That's all the letters for this visit.");
                 await g.key();
                 return;
