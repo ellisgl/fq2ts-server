@@ -1,6 +1,6 @@
 {
   "name": "@fq2ts/server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Multiplayer for @fq2ts/engine games: SSH and the web, accounts with email, SQLite.",
   "type": "module",
@@ -9,7 +9,7 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@fq2ts/engine": "github:ellisgl/fq2ts-engine#be983dafa302759ba97bf0930b590a9405f41e67",
+    "@fq2ts/engine": "github:ellisgl/fq2ts-engine#v0.2.0",
     "@types/nodemailer": "^8.0.2",
     "@types/ssh2": "^1.15.6",
     "nodemailer": "^8.0.11",
