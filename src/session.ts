@@ -73,8 +73,9 @@ interface AskOptions {
 // get a few guesses, so a quick hash will do).
 const hashCode = (code: string): string => new Bun.CryptoHasher('sha256').update(code).digest('hex');
 
-// The login box sits in the title screen's menu box.
-const BOX = { x: 33, top: 16, width: 17, bottom: 23 };
+// The login box sits in the title screen's menu box: the one the game's
+// title says (see Content's title.menu.box), or else this one.
+const BOX = { x: 32, y: 16, width: 18, height: 8 };
 
 export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     private readonly options: SessionOptions<F, W>;
@@ -540,13 +541,15 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
     private async menu(options: readonly string[]): Promise<number> {
         this.titleScreen();
         const { color, selectedColor } = this.options.content.title.menu;
-        const picked = await choose(this.term, options, { x: BOX.x, y: BOX.top + 1, colors: { normal: color, selected: selectedColor } });
+        const box = this.box();
+        const picked = await choose(this.term, options, { x: box.x + 1, y: box.y + 1, colors: { normal: color, selected: selectedColor } });
         return picked < 0 ? options.length - 1 : picked;
     }
 
     // A question in the box; null if the player presses Escape. Questions
     // asked together go on different rows of the box. A note goes under it.
-    private async ask(question: string, { mask = false, row = 0, max = BOX.width - 1, note = '', filter }: AskOptions = {}): Promise<string | null> {
+    private async ask(question: string, { mask = false, row = 0, max, note = '', filter }: AskOptions = {}): Promise<string | null> {
+        const box = this.box();
         if (row === 0) {
             this.titleScreen();
         }
@@ -555,9 +558,9 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
             this.notice(note);
         }
 
-        const y = BOX.top + 1 + row;
-        draw(this.term.screen, `{white}${question}`, { x: BOX.x, y, bg: 1 });
-        return askText(this.term, { x: BOX.x, y: y + 1, length: BOX.width, fg: 15, bg: 0, max, ...(mask ? { mask: '*' } : {}), ...(filter ? { filter } : {}) });
+        const y = box.y + 1 + row;
+        draw(this.term.screen, `{white}${question}`, { x: box.x + 1, y, bg: 1 });
+        return askText(this.term, { x: box.x + 1, y: y + 1, length: box.width - 1, fg: 15, bg: 0, max: max ?? box.width - 2, ...(mask ? { mask: '*' } : {}), ...(filter ? { filter } : {}) });
     }
 
     private async pause(text: string): Promise<void> {
@@ -580,8 +583,13 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
             draw(screen, line);
         }
 
-        for (let y = BOX.top; y <= BOX.bottom; y++) {
-            screen.text(BOX.x - 1, y, ' '.repeat(BOX.width + 1), 15, 1);
+        const box = this.box();
+        for (let y = box.y; y < box.y + box.height; y++) {
+            screen.text(box.x, y, ' '.repeat(box.width), 15, 1);
         }
+    }
+
+    private box(): { x: number; y: number; width: number; height: number } {
+        return this.options.content.title.menu.box ?? BOX;
     }
 }

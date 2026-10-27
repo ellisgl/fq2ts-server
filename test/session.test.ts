@@ -21,13 +21,15 @@ interface Setup {
     mailFails?: boolean;
     loginShut?(name: string): string | null;
     loginFailed?(name: string): void;
+    // Where the title art's menu box is.
+    box?: { x: number; y: number; width: number; height: number };
 }
 
 // The emails sent in this test, and the time it is (moved on by tests).
 let sent: Email[] = [];
 let clock = 0;
 
-function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false, loginShut, loginFailed }: Setup = {}) {
+function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false, loginShut, loginFailed, box }: Setup = {}) {
     const term = new FakeTerminal();
     const logs: string[] = [];
     const released: number[] = [];
@@ -36,7 +38,7 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
     const run = new Session({
         term,
         store,
-        content,
+        content: box ? { ...content, title: { ...content.title, menu: { ...content.title.menu, box } } } : content,
         items: itemCatalogue,
         config,
         makeGame: (_account, autosave) => {
@@ -116,6 +118,29 @@ describe('the front door', () => {
                 return LEAVE;
             },
         ]);
+        await run.run();
+        expect(term.remaining).toBe(0);
+    });
+
+    test("uses the game's own menu box", async () => {
+        const { run, term } = session(
+            (t) => [
+                () => {
+                    expect(t.screen.cell(10, 5)).toMatchObject({ ch: ' ', bg: 1 });
+                    expect(t.screen.cell(29, 5)).toMatchObject({ ch: ' ', bg: 1 });
+                    expect(row(t.screen, 6).slice(10, 16)).toBe('Log in');
+                    return 'enter';
+                },
+                () => {
+                    expect(row(t.screen, 6).slice(10, 15)).toBe('Name:');
+                    expect(t.screen.cell(11, 7)).toMatchObject({ bg: 0 });
+                    expect(t.screen.cell(29, 7)).toMatchObject({ bg: 0 });
+                    expect(t.screen.cell(30, 7)).not.toMatchObject({ bg: 0 });
+                    return 'escape';
+                },
+            ],
+            { box: { x: 10, y: 5, width: 20, height: 8 } },
+        );
         await run.run();
         expect(term.remaining).toBe(0);
     });
