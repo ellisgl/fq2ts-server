@@ -1,6 +1,6 @@
 {
   "name": "@fq2ts/server",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Multiplayer for @fq2ts/engine games: the web, accounts with email, SQLite.",
   "type": "module",
