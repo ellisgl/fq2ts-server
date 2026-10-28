@@ -1,6 +1,5 @@
-// The multiplayer server: players connect by SSH or with a web browser
-// (an xterm.js page talking over a web socket), log in, and play. There's
-// no telnet: it would send passwords in the clear.
+// The multiplayer server: players connect with a web browser (an xterm.js
+// page talking over a web socket), log in, and play.
 //
 // Everything runs in this one process: each connection gets a Terminal and
 // a Session (the login screens, then a Game), sharing the world data and
@@ -34,7 +33,6 @@ import { Guard, normalAddress, webAddress } from './guard.ts';
 import { rankings, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2ts/engine/text';
-import { listenSsh, type SshServer } from './ssh.ts';
 import { Store } from './store.ts';
 import type { WorldRecord } from '@fq2ts/engine/shared';
 
@@ -44,18 +42,13 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     dataDir: string;
     // The database file, or ':memory:'.
     database: string;
+    // Where the web page listens (127.0.0.1 behind a TLS proxy).
     host?: string;
-    // Where the web page listens, if not `host` (127.0.0.1 behind a TLS
-    // proxy, while SSH listens to everyone).
-    webHost?: string;
     // Whether web players' addresses come from X-Forwarded-For (set by the
     // proxy in front). Without it, behind a proxy they all look like it.
     trustProxy?: boolean;
     // null turns the web off; 0 picks a free port.
     webPort?: number | null;
-    // SSH is off unless given a port and the file for its host key (made
-    // if it isn't there).
-    ssh?: { port: number; hostKeyFile: string } | null;
     // The game's name, for players whose terminal won't do (default: "This game").
     gameName?: string;
     // A way of connecting failed after starting (its port was taken).
@@ -82,7 +75,6 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
 
 export interface RunningServer {
     webPort: number | null;
-    sshPort: number | null;
     connections(): number;
     // Saves everyone, says goodbye and closes every connection.
     stop(): Promise<void>;
@@ -163,7 +155,6 @@ class Connection<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
 export function startServer<F extends FlagRecord, W extends WorldRecord = WorldRecord>(options: ServerOptions<F, W>): RunningServer {
     const { content, dataDir, host = '127.0.0.1', webPort = 8080, maxPlayers = 50, idleMinutes = 30 } = options;
-    const webHost = options.webHost ?? host;
     const log = options.log ?? ((line: string) => {
         console.log(`${new Date().toISOString()} ${line}`);
     });
@@ -382,7 +373,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
     if (webPort !== null) {
         const parse = oneOf(['input', 'resize'] as const);
         web = Bun.serve<WebData>({
-            hostname: webHost,
+            hostname: host,
             port: webPort,
             fetch: (request, server) => {
                 const url = new URL(request.url);
@@ -462,46 +453,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                 },
             },
         });
-        log(`Web: http://${webHost}:${web.port}/`);
-    }
-
-    // ---- SSH
-
-    let ssh: SshServer | null = null;
-    if (options.ssh) {
-        ssh = listenSsh({
-            host,
-            port: options.ssh.port,
-            hostKeyFile: options.ssh.hostKeyFile,
-            log,
-            maxPending: MAX_PENDING,
-            connect: ({ columns, rows, colors }, send, hangUp, address) => {
-                const connection = connect(send, hangUp, address, colors);
-                connection.io.resized(columns, rows);
-                connections.add(connection);
-                if (!turnedAway(connection)) {
-                    begin(connection);
-                }
-                return {
-                    typed: (text) => {
-                        connection.io.typed(text);
-                    },
-                    resized: (c, r) => {
-                        connection.io.resized(c, r);
-                    },
-                    lost: () => {
-                        connection.lost();
-                        connections.delete(connection);
-                    },
-                };
-            },
-            failed: (error) => {
-                (options.onError ?? ((e: Error) => {
-                    log(`SSH: ${e.message}`);
-                }))(error);
-            },
-        });
-        log(`SSH: ${host} port ${ssh.port}`);
+        log(`Web: http://${host}:${web.port}/`);
     }
 
     // ---- Idle players
@@ -522,7 +474,6 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
 
     return {
         webPort: web?.port ?? null,
-        sshPort: ssh?.port ?? null,
         connections: () => connections.size,
         stop: async () => {
             clearInterval(idleTimer);
@@ -530,7 +481,6 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             // settles once a web socket has connected, though it does stop
             // listening; so it isn't awaited.)
             void web?.stop();
-            ssh?.stop();
             // (Closing a connection takes it out of `connections`, so wait
             // for the ones open now.)
             const open = [...connections];

@@ -1,13 +1,9 @@
-// The whole server, on real sockets: the web page and its web socket, and
-// SSH.
+// The whole server, on real sockets: the web page and its web socket.
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import { statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Client as SshClient } from 'ssh2';
 import { startServer, type RunningServer, type ServerOptions } from '../src/server.ts';
 import { ScreenModel } from './screen-model.ts';
-import { hostKey, newHostKey } from '../src/ssh.ts';
 import { Store } from '../src/store.ts';
 import { runAdmin } from '../src/admin-cli.ts';
 import { tempDir } from '@fq2ts/engine/testing';
@@ -94,50 +90,6 @@ async function browser(port: number, { size = [80, 25] as [number, number] | nul
         closed: () => until('the web socket to close', () => isClosed),
         received: () => plain(text),
         raw: () => new TextEncoder().encode(text),
-    };
-}
-
-async function ssh(port: number, { size = [80, 25] as [number, number], user = 'anyone', term = 'xterm', env = {} } = {}): Promise<Client & { resize(columns: number, rows: number): void }> {
-    let text = '';
-    let isClosed = false;
-    const model = new ScreenModel();
-    const client = new SshClient();
-    const stream = await new Promise<import('ssh2').ClientChannel>((resolve, reject) => {
-        client
-            .on('ready', () => {
-                client.shell({ cols: size[0], rows: size[1], term }, { env }, (error, channel) => {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve(channel);
-                    }
-                });
-            })
-            .on('error', reject)
-            .connect({ host: '127.0.0.1', port, username: user });
-    });
-    const decoder = new TextDecoder();
-    stream.on('data', (data: Buffer) => {
-        const chunk = decoder.decode(data, { stream: true });
-        text += chunk;
-        model.feed(chunk);
-    });
-    stream.on('close', () => {
-        isClosed = true;
-        client.end();
-    });
-    return {
-        send: (data) => {
-            stream.write(typeof data === 'string' ? data : Buffer.from(data));
-        },
-        sees: (wanted) => until(`"${wanted}"`, () => model.text().includes(wanted)),
-        screen: () => model.text(),
-        closed: () => until('the SSH connection to close', () => isClosed),
-        received: () => plain(text),
-        raw: () => new TextEncoder().encode(text),
-        resize: (columns, rows) => {
-            stream.setWindow(rows, columns, 0, 0);
-        },
     };
 }
 
@@ -386,108 +338,10 @@ describe('the web', () => {
     });
 });
 
-describe('SSH', () => {
-    const withSsh = (): RunningServer => start({ ssh: { port: 0, hostKeyFile: join(tempDir(), 'host_key') } });
-
-    test('any user name gets in, to the login menu, and plays', async () => {
-        const server = withSsh();
-        const client = await ssh(server.sshPort ?? 0, { user: 'whoever' });
-        await newPlayer(client);
-        await client.sees('HP 100/100');
-        client.send('\x03');
-        await client.closed();
-        await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
-    });
-
-    test.each([
-        ['xterm', {}, /\x1b\[0;97;40m/, /;38;/],
-        ['xterm-256color', {}, /;38;5;/, /;38;2;/],
-        ['xterm-256color', { COLORTERM: 'truecolor' }, /;38;2;/, /;38;5;/],
-    ])('colours as the terminal shows them: %p %p', async (term, env, used, unused) => {
-        const server = withSsh();
-        const client = await ssh(server.sshPort ?? 0, { term, env });
-        await client.sees('Log');
-        const raw = new TextDecoder().decode(client.raw());
-        expect(raw).toMatch(used);
-        expect(raw).not.toMatch(unused);
-    });
-
-    test('the window size comes from the terminal; a new size redraws the screen', async () => {
-        const server = withSsh();
-        const small = await ssh(server.sshPort ?? 0, { size: [70, 20] });
-        await small.sees('at least 80x25 (this one is 70x20)');
-        await small.closed();
-        const client = await ssh(server.sshPort ?? 0, { size: [100, 30] });
-        await client.sees('Log');
-        const count = (): number => client.received().split('Forgot password').length - 1;
-        expect(count()).toBe(1);
-        client.resize(120, 40);
-        await until('a redraw', () => count() === 2);
-    });
-
-    test('the host key is made once, readable only by its owner, and kept', async () => {
-        const file = join(tempDir(), 'host_key');
-        const first = start({ ssh: { port: 0, hostKeyFile: file } });
-        const key = await Bun.file(file).text();
-        expect(key).toContain('BEGIN OPENSSH PRIVATE KEY');
-        expect(statSync(file).mode & 0o777).toBe(0o600);
-        await first.stop();
-        start({ ssh: { port: 0, hostKeyFile: file } });
-        expect(await Bun.file(file).text()).toBe(key);
-    });
-
-    test('a bad new key is made again, and a bad key file is reported', () => {
-        const good = newHostKey();
-        // One byte short, as ssh2 sometimes makes them.
-        const [head = '', ...rest] = good.split('\n');
-        const body = Buffer.from(rest.slice(0, -2).join(''), 'base64');
-        const short = [head, body.subarray(0, -1).toString('base64'), ...rest.slice(-2)].join('\n');
-        const made = [short, good];
-        expect(newHostKey(() => made.shift() ?? '')).toBe(good);
-        expect(() => newHostKey(() => short)).toThrow("Couldn't make an SSH host key.");
-
-        const file = join(tempDir(), 'bad_key');
-        writeFileSync(file, short);
-        expect(() => hostKey(file)).toThrow(`The SSH host key in ${file} can't be read`);
-    });
-
-    test('a client gets one session: more are turned down', async () => {
-        const server = start({ ssh: { port: 0, hostKeyFile: join(tempDir(), 'host_key') } });
-        const client = new SshClient();
-        await new Promise<void>((resolve, reject) => {
-            client.on('ready', () => {
-                resolve();
-            }).on('error', reject).connect({ host: '127.0.0.1', port: server.sshPort ?? 0, username: 'x' });
-        });
-        // (A second session isn't even opened, rather than opened and its
-        // request refused.)
-        const second = (): Promise<string> => new Promise((resolve) => {
-            client.shell({ cols: 80, rows: 25, term: 'xterm' }, (error) => {
-                resolve(error?.message ?? 'opened');
-            });
-        });
-        const first = await new Promise<boolean>((resolve) => {
-            client.shell({ cols: 80, rows: 25, term: 'xterm' }, (error) => {
-                resolve(error === undefined);
-            });
-        });
-        expect(first).toBe(true);
-        expect(await second()).toContain('open failure');
-        client.end();
-    });
-
-    test('SSH is off unless asked for', () => {
-        expect(start().sshPort).toBeNull();
-    });
-
-    test('a port already taken is reported', async () => {
-        const errors: Error[] = [];
-        const first = withSsh();
-        start({ ssh: { port: first.sshPort ?? 0, hostKeyFile: join(tempDir(), 'k') }, onError: (error) => errors.push(error), webPort: null });
-        await until('the error', () => errors.length > 0);
-        expect(errors[0]).toMatchObject({ code: 'EADDRINUSE' });
-        await first.stop();
-    });
+test('a port already taken is reported', async () => {
+    const first = start();
+    expect(() => start({ webPort: first.webPort })).toThrow(expect.objectContaining({ code: 'EADDRINUSE' }));
+    await first.stop();
 });
 
 test('mods are added to the game, and listed in the log', async () => {

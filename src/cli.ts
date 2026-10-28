@@ -40,18 +40,13 @@ folder the server is started from (see .env.example): --web-port is
 ${prefix}WEB_PORT, and so on. Options given here win.
 
   --host ADDRESS        where to listen (default: 127.0.0.1, this computer
-                        only; 0.0.0.0 lets other computers in)
-  --web-host ADDRESS    where the web page listens, if not --host (say
-                        127.0.0.1 behind a TLS proxy)
+                        only, as behind a TLS proxy; 0.0.0.0 lets other
+                        computers in)
   --trust-proxy         web players' addresses come from X-Forwarded-For,
                         set by the proxy in front (for bans and limits)
   --web-port N          web port (default: 8080); players open http://host:N/
-  --ssh-port N          SSH port (default: 2222); players use
-                        ssh -p N host (any user name, no password)
   --no-web              don't accept web browsers
-  --no-ssh              don't accept SSH
-  --data DIR            where the database and the SSH host key go
-                        (default: server-data)
+  --data DIR            where the database goes (default: server-data)
   --mods DIR            the mods to add to the game, a folder each
                         (default: mods, if there is one)
   --max-players N       connections at once (default: 50)
@@ -74,12 +69,9 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
         args: [...args],
         options: {
             'host': { type: 'string' },
-            'web-host': { type: 'string' },
             'trust-proxy': { type: 'boolean' },
             'web-port': { type: 'string' },
             'no-web': { type: 'boolean' },
-            'ssh-port': { type: 'string' },
-            'no-ssh': { type: 'boolean' },
             'data': { type: 'string' },
             'mods': { type: 'string' },
             'max-players': { type: 'string' },
@@ -198,10 +190,8 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
                 dataDir: gameData,
                 database: join(dataDir, database),
                 host: setting('host', '127.0.0.1'),
-                webHost: setting('web-host', setting('host', '127.0.0.1')),
                 trustProxy: flag('trust-proxy'),
                 webPort: flag('no-web') ? null : number('web-port', 8080),
-                ssh: flag('no-ssh') ? null : { port: number('ssh-port', 2222), hostKeyFile: join(dataDir, 'ssh_host_ed25519_key') },
                 onError: (error) => {
                     fail(couldNotStart(error));
                 },
@@ -220,7 +210,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
     function couldNotStart(error: unknown): string {
         const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
         return code === 'EADDRINUSE'
-            ? 'A port the server needs is already in use. Is it running already? (--web-port and --ssh-port choose others.)'
+            ? 'A port the server needs is already in use. Is it running already? (--web-port chooses another.)'
             : `The server couldn't start: ${error instanceof Error ? error.message : String(error)}`;
     }
 

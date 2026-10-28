@@ -1,6 +1,5 @@
 // A terminal at the other end of a network connection, as the input and
-// output a Terminal needs. The connection (SSH or a web socket) passes
-// in what the player types and how big their window is, and sends on what
+// output a Terminal needs. The connection (a web socket) passes in what the player types and how big their window is, and sends on what
 // the game writes.
 
 import { EventEmitter } from 'node:events';
