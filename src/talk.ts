@@ -1,12 +1,14 @@
 // Talking, on the server: T says something to the players on your screen,
 // Y yells it to everyone, W reads and writes letters, D shows the news.
 // Everything a player types is escaped before anyone sees it, so it can't
-// colour (or move about) anyone else's screen.
+// colour (or move about) anyone else's screen, and in clean mode its swear
+// words are starred out.
 
 import type { FlagRecord } from '@fq2ts/engine/player';
 import type { Monster } from '@fq2ts/engine/combat';
 import type { Script } from '@fq2ts/engine/script';
 import { escapeMarkup } from '@fq2ts/engine/text';
+import type { Clean } from './clean.ts';
 import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
 import type { WorldRecord } from '@fq2ts/engine/shared';
@@ -31,12 +33,14 @@ interface Talk<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     now?(): number;
     // Letters one visit can send (default: LETTERS_PER_VISIT).
     lettersPerVisit?: number;
+    // Stars out swear words (default: none are).
+    clean?: Clean;
 }
 
 const NOT_SO_FAST = '{yellow}Not so fast! Wait a moment before saying more.';
 
 // T: to everyone on this screen.
-export function talk<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, me }: Talk<F, W>): Script<F, W> {
+export function talk<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, me, clean }: Talk<F, W>): Script<F, W> {
     return async (g) => {
         const said = (await g.askLine('Say:', SAY_LENGTH))?.trim();
         if (!said) {
@@ -48,14 +52,14 @@ export function talk<F extends FlagRecord, W extends WorldRecord = WorldRecord>(
             return;
         }
 
-        const words = escapeMarkup(said);
+        const words = escapeMarkup(clean?.text(said) ?? said);
         const heard = realm.toScreen(me.id, `{white}${escapeMarkup(me.name)} says: {gray}"${words}"`);
         g.write(heard ? `{white}You say: {gray}"${words}"` : `{gray}You say "${words}", but no one is here to hear it.`);
     };
 }
 
 // Y: to everyone in the realm.
-export function yell<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, me }: Talk<F, W>): Script<F, W> {
+export function yell<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, me, clean }: Talk<F, W>): Script<F, W> {
     return async (g) => {
         const said = (await g.askLine('Yell:', SAY_LENGTH))?.trim();
         if (!said) {
@@ -67,14 +71,14 @@ export function yell<F extends FlagRecord, W extends WorldRecord = WorldRecord>(
             return;
         }
 
-        const words = escapeMarkup(said);
+        const words = escapeMarkup(clean?.text(said) ?? said);
         realm.toEveryone(me.id, `{yellow}${escapeMarkup(me.name)} yells: "${words}"`);
         g.write(`{yellow}You yell: "${words}"`);
     };
 }
 
 // W: the player's letters, and writing one to another player.
-export function mail<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, store, me, now = Date.now, lettersPerVisit = LETTERS_PER_VISIT }: Talk<F, W>): Script<F, W> {
+export function mail<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ realm, store, me, now = Date.now, lettersPerVisit = LETTERS_PER_VISIT, clean }: Talk<F, W>): Script<F, W> {
     let sent = 0;
     return async (g) => {
         const letters = store.letters(me.id);
@@ -133,7 +137,7 @@ export function mail<F extends FlagRecord, W extends WorldRecord = WorldRecord>(
                 if (!line.trim()) {
                     break;
                 }
-                lines.push(line.trimEnd());
+                lines.push(clean?.text(line.trimEnd()) ?? line.trimEnd());
             }
 
             if (!lines.length) {

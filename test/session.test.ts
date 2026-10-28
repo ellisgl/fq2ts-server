@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
 import { MAX_EMAILS, RESEND_WAIT, Session } from '../src/session.ts';
 import { Store } from '../src/store.ts';
+import { Clean } from '../src/clean.ts';
 import type { Email } from '../src/mail.ts';
 import { Game } from '@fq2ts/engine/game';
 import { FakeTerminal, pick, row, screenText, tempDir, typed, type Step } from '@fq2ts/engine/testing';
@@ -23,13 +24,14 @@ interface Setup {
     loginFailed?(name: string): void;
     // Where the title art's menu box is.
     box?: { x: number; y: number; width: number; height: number };
+    clean?: Clean;
 }
 
 // The emails sent in this test, and the time it is (moved on by tests).
 let sent: Email[] = [];
 let clock = 0;
 
-function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false, loginShut, loginFailed, box }: Setup = {}) {
+function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false, loginShut, loginFailed, box, clean }: Setup = {}) {
     const term = new FakeTerminal();
     const logs: string[] = [];
     const released: number[] = [];
@@ -69,6 +71,7 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
         now: () => clock,
         ...(loginShut ? { loginShut } : {}),
         ...(loginFailed ? { loginFailed } : {}),
+        ...(clean ? { clean } : {}),
         hashPassword,
         verifyPassword,
     });
@@ -193,6 +196,8 @@ describe('new players', () => {
                     says("2-20 letters, digits, spaces and ' - . please."),
                     ...typed('taken'),
                     says('Someone already has that name.'),
+                    ...typed('Sir Sh1thead'),
+                    says('Please pick another name.'),
                     ...typed('Fresh'),
                     ...typed('short'),
                     ...typed('short'),
@@ -211,7 +216,7 @@ describe('new players', () => {
                     LEAVE,
                 ];
             },
-            { store },
+            { store, clean: new Clean() },
         );
         await run.run();
         expect(term.remaining).toBe(0);

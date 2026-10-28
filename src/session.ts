@@ -14,6 +14,7 @@ import type { ItemCatalogue } from '@fq2ts/engine/items';
 import type { Config, Content, Game } from '@fq2ts/engine/game';
 import { changedEmail, codeEmail, MAX_EMAIL, validEmail, type CodePurpose, type Mailer } from './mail.ts';
 import { CODE_MINUTES, validName, type Account, type Store } from './store.ts';
+import type { Clean } from './clean.ts';
 import type { WorldRecord } from '@fq2ts/engine/shared';
 
 // Wrong passwords before the connection is closed.
@@ -43,6 +44,8 @@ export interface SessionOptions<F extends FlagRecord, W extends WorldRecord = Wo
     maySignUp?(): boolean;
     signedUp?(): void;
     mayEmail?(to: string): boolean;
+    // Turns down new players' names with swear words in them.
+    clean?: Clean;
     term: Terminal;
     store: Store;
     content: Content<F, W>;
@@ -206,6 +209,8 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
             const wanted = answer.trim();
             if (!validName(wanted)) {
                 await this.pause("{yellow}2-20 letters, digits, spaces and ' - . please.");
+            } else if (this.options.clean?.allows(wanted) === false) {
+                await this.pause('{yellow}Please pick another name.');
             } else if (store.account(wanted)) {
                 await this.pause('{yellow}Someone already has that name.');
             } else {

@@ -35,6 +35,7 @@ import { rankings, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2ts/engine/text';
 import { Store } from './store.ts';
+import { Clean, DEFAULT_BAD_WORDS } from './clean.ts';
 import type { WorldRecord } from '@fq2ts/engine/shared';
 
 export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
@@ -69,6 +70,10 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     // Sends the codes that confirm addresses and reset passwords (default:
     // writes them to the log).
     mailer?: Mailer;
+    // Clean mode: the swear words starred out of what players say and
+    // write, and not allowed in names (default: DEFAULT_BAD_WORDS; none
+    // turns it off). See clean.ts.
+    badWords?: readonly string[];
     // For tests: quicker password hashing.
     hashPassword?(password: string): Promise<string>;
     verifyPassword?(password: string, hash: string): Promise<boolean>;
@@ -216,6 +221,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
         }
     };
     const realm = new Realm<F, W>({ chatWait: rules.chatWaitSeconds * 1000 });
+    const clean = new Clean(options.badWords ?? DEFAULT_BAD_WORDS);
     const gifts = new Gifts<F, W>({ realm, store: shared.store, items: shared.items });
     // Whose connection is whose (to kick them).
     const playingOn = new Map<number, Connection<F, W>>();
@@ -298,10 +304,11 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             content: shared.content,
             items: shared.items,
             config: shared.config,
+            clean,
             makeGame: ({ id, name, admin }, autosave) => {
                 const me = { id, name };
                 playingOn.set(id, connection);
-                const talking = { realm, store: shared.store, me };
+                const talking = { realm, store: shared.store, me, clean };
                 const isNew = shared.store.loadPlayer(id) === null;
                 // (A player back on a new day starts it afresh.)
                 days.arrive(id);

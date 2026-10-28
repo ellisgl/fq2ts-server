@@ -2,6 +2,7 @@ import { describe, expect, spyOn, test } from 'bun:test';
 import { CHAT_WAIT, Realm } from '../src/realm.ts';
 import { LETTERS_PER_VISIT, lostFight, mail, news, talk, yell } from '../src/talk.ts';
 import { MAILBOX, NEWS_DAYS, Store } from '../src/store.ts';
+import { Clean } from '../src/clean.ts';
 import { makeGame, scriptContext, type TestFlags } from '@fq2ts/engine/fixture';
 import { monster, pick, screenText, typed } from '@fq2ts/engine/testing';
 
@@ -109,6 +110,20 @@ describe('T and Y', () => {
         expect(screenText(term.screen)).toContain('You say: "hi {red}there"');
     });
 
+    test('in clean mode, T and Y star out swear words, for the speaker too', async () => {
+        const { realm: r, heard, later } = realm();
+        const ann = { realm: r, store: store(), me: { id: 1, name: 'Ann' }, clean: new Clean() };
+        const said = scriptContext({ steps: [...typed('what the fuck, {Bob}')] });
+        await talk(ann)(said.g);
+        expect(heard['Bob']).toEqual(['{white}Ann says: {gray}"what the ****, {{Bob}"']);
+        expect(screenText(said.term.screen)).toContain('You say: "what the ****, {Bob}"');
+
+        later(CHAT_WAIT);
+        const yelled = scriptContext({ steps: [...typed('SHIT! a class act')] });
+        await yell(ann)(yelled.g);
+        expect(heard['Cat']).toEqual(['{yellow}Ann yells: "****! a class act"']);
+    });
+
     test('T with no one about, too soon, or nothing to say', async () => {
         const { realm: r, heard } = realm();
         const me = { id: 3, name: 'Cat' };
@@ -163,6 +178,14 @@ describe('W', () => {
         });
         await mail({ realm: r, store: s, me: { id: 2, name: 'Bob' } })(bob.g);
         expect(s.unreadLetters(2)).toBe(0);
+    });
+
+    test('in clean mode, swear words are starred out of letters', async () => {
+        const { realm: r } = realm();
+        const s = store();
+        const { g } = scriptContext({ steps: [...WRITE, ...typed('Bob'), ...typed('You b1tch,'), ...typed('pay up.'), 'enter', 'x'] });
+        await mail({ realm: r, store: s, me: { id: 1, name: 'Ann' }, clean: new Clean() })(g);
+        expect(s.letters(2)[0]?.text).toBe('You *****,\npay up.');
     });
 
     test('no one by that name, yourself, an empty letter and Escape send nothing', async () => {

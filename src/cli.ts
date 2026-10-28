@@ -7,7 +7,7 @@
 // file), else their defaults; see USAGE.
 
 import { join, resolve } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import type { Content } from '@fq2ts/engine/game';
 import type { FlagRecord } from '@fq2ts/engine/player';
@@ -15,6 +15,7 @@ import { loadMods, type LoadedMod } from '@fq2ts/engine/mods';
 import { startServer, type RunningServer } from './server.ts';
 import { DEFAULT_RULES, RULE_OPTIONS, type Rules } from './rules.ts';
 import { smtpMailer, type Mailer } from './mail.ts';
+import { readBadWords } from './clean.ts';
 import type { WorldRecord } from '@fq2ts/engine/shared';
 
 export interface ServerCli<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
@@ -51,6 +52,11 @@ ${prefix}WEB_PORT, and so on. Options given here win.
                         (default: mods, if there is one)
   --max-players N       connections at once (default: 50)
   --idle-minutes N      disconnect players idle this long (default: 30)
+  --bad-words FILE      the swear words to star out of what players say and
+                        write, and not allow in names: one a line, a * at
+                        the end for any word starting with it (default: a
+                        list of the usual ones)
+  --no-clean            let players swear
   --smtp-host HOST      the mail server that sends players' codes (without
                         one, emails are written to the log instead)
   --smtp-port N         its port (default: 587; 465 for TLS from the start)
@@ -76,6 +82,8 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
             'mods': { type: 'string' },
             'max-players': { type: 'string' },
             'idle-minutes': { type: 'string' },
+            'bad-words': { type: 'string' },
+            'no-clean': { type: 'boolean' },
             'smtp-host': { type: 'string' },
             'smtp-port': { type: 'string' },
             'smtp-user': { type: 'string' },
@@ -178,6 +186,25 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
         fail(`A mod couldn't be loaded: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    // Clean mode's words: none, the server's own, or the usual ones.
+    function badWords(): string[] | undefined {
+        if (flag('no-clean')) {
+            return [];
+        }
+
+        const file = setting('bad-words');
+        if (file === undefined) {
+            return undefined;
+        }
+
+        try {
+            return readBadWords(readFileSync(resolve(file), 'utf8'));
+        } catch (error) {
+            return fail(`${both('bad-words')} couldn't be read: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+    const words = badWords();
+
     mkdirSync(dataDir, { recursive: true });
 
     // Starts the server, or explains why it can't (a port someone else has,
@@ -200,6 +227,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
                 idleMinutes: number('idle-minutes', 30),
                 rules: readRules(),
                 ...(mail ? { mailer: mail } : {}),
+                ...(words === undefined ? {} : { badWords: words }),
             });
         } catch (error) {
             return fail(couldNotStart(error));
