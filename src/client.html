@@ -4,47 +4,72 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Final Quest 2</title>
-<!-- xterm.js from the npm package, checked against its hash (SRI): a changed
-     file on the CDN isn't run. -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" integrity="sha384-8Xk9wy/gzEDUKrXtrmCFa2bBuK3BpjpDuL/p0SeKQX19Khl/M+lHOgD/CyYf7efP" crossorigin="anonymous">
+<!-- wterm, built from its npm package and served by the game's server. -->
+<link rel="stylesheet" href="/wterm.css">
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #111; color: #aaa; font: 14px system-ui, sans-serif; }
   #screen { padding: 8px; background: #000; border: 1px solid #333; }
   #status { min-height: 1.4em; }
   button { font: inherit; padding: 4px 12px; }
+  /* The terminal: black, with xterm's 16 colours (the game sends its
+     colours as RGB, so these are only a fallback). */
+  .wterm {
+    --term-bg: #000000;
+    --term-fg: #ffffff;
+    --term-cursor: #ffffff;
+    --term-font-family: "DejaVu Sans Mono", Menlo, Consolas, monospace;
+    --term-font-size: 16px;
+    --term-row-height: 19px;
+    --term-color-0: #000000;
+    --term-color-1: #cd0000;
+    --term-color-2: #00cd00;
+    --term-color-3: #cdcd00;
+    --term-color-4: #0000ee;
+    --term-color-5: #cd00cd;
+    --term-color-6: #00cdcd;
+    --term-color-7: #e5e5e5;
+    --term-color-8: #7f7f7f;
+    --term-color-9: #ff0000;
+    --term-color-10: #00ff00;
+    --term-color-11: #ffff00;
+    --term-color-12: #5c5cff;
+    --term-color-13: #ff00ff;
+    --term-color-14: #00ffff;
+    --term-color-15: #ffffff;
+  }
 </style>
 </head>
 <body>
 <div id="screen"></div>
 <div id="status">Connecting...</div>
 <button id="again" hidden>Connect again</button>
-<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js" integrity="sha384-M169f14mRZOXm3hD/v2Ti0ThIT/RnAQagXA9nlE15yHAtrW19gdePJh/HaTzUOe/" crossorigin="anonymous"></script>
-<script>
+<script type="module">
+  import { WTerm } from '/wterm.js';
+
   // The game is 80x25 cells; the page sends what's typed and draws what
   // the server sends.
-  const term = new Terminal({
+  let ws = null;
+  const term = new WTerm(document.getElementById('screen'), {
     cols: 80,
     rows: 25,
-    fontFamily: '"DejaVu Sans Mono", Menlo, Consolas, monospace',
-    fontSize: 16,
-    cursorStyle: 'underline',
+    autoResize: false,
     cursorBlink: true,
-    theme: { background: '#000000' },
+    onData: (data) => {
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+    },
   });
-  term.open(document.getElementById('screen'));
+  await term.init();
 
   const status = document.getElementById('status');
   const again = document.getElementById('again');
 
   function connect() {
-    term.reset();
+    // (ESC c resets the terminal.)
+    term.write('\x1bc');
     again.hidden = true;
     status.textContent = 'Connecting...';
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-    const typed = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
-    });
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
     ws.onopen = () => {
       status.textContent = 'Connected.';
       ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
@@ -52,7 +77,6 @@
     };
     ws.onmessage = (event) => term.write(event.data);
     ws.onclose = () => {
-      typed.dispose();
       status.textContent = 'Disconnected.';
       again.hidden = false;
     };

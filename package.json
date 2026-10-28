@@ -11,6 +11,7 @@
   "dependencies": {
     "@fq2ts/engine": "github:ellisgl/fq2ts-engine#v0.2.0",
     "@types/nodemailer": "^8.0.2",
+    "@wterm/dom": "0.5.7",
     "nodemailer": "^8.0.11"
   },
   "scripts": {

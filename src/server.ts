@@ -1,10 +1,11 @@
-// The multiplayer server: players connect with a web browser (an xterm.js
+// The multiplayer server: players connect with a web browser (a wterm
 // page talking over a web socket), log in, and play.
 //
 // Everything runs in this one process: each connection gets a Terminal and
 // a Session (the login screens, then a Game), sharing the world data and
 // the database.
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Server, ServerWebSocket } from 'bun';
@@ -92,6 +93,37 @@ const MAX_MESSAGE = 4096;
 const MAX_PENDING = 1024 * 1024;
 
 const PAGE = readFileSync(join(import.meta.dir, 'client.html'), 'utf8');
+// What the page may load and run: only what this server sends (its own
+// script, by its hash; WebAssembly, for the terminal), and not in anyone
+// else's frame (where clicks and keys could be tricked out of a player).
+const PAGE_SCRIPT = /<script type="module">([\s\S]*?)<\/script>/.exec(PAGE)?.[1] ?? '';
+const PAGE_POLICY = [
+    "default-src 'self'",
+    `script-src 'self' 'sha256-${createHash('sha256').update(PAGE_SCRIPT).digest('base64')}' 'wasm-unsafe-eval'`,
+    // (The terminal places and colours its cells with style attributes.)
+    "style-src 'self' 'unsafe-inline'",
+    "frame-ancestors 'none'",
+].join('; ');
+const HEADERS = {
+    'x-frame-options': 'DENY',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+};
+
+// The terminal on the page (wterm), built for the browser from its package
+// the first time it's asked for, and its stylesheet.
+let terminalFiles: Promise<{ script: string; style: string }> | null = null;
+function terminal(): Promise<{ script: string; style: string }> {
+    terminalFiles ??= (async () => {
+        const built = await Bun.build({ entrypoints: [Bun.resolveSync('@wterm/dom', import.meta.dir)], target: 'browser', format: 'esm', minify: true });
+        const [script] = built.outputs;
+        if (!script) {
+            throw new Error("The web page's terminal couldn't be built.");
+        }
+        return { script: await script.text(), style: await Bun.file(Bun.resolveSync('@wterm/dom/css', import.meta.dir)).text() };
+    })();
+    return terminalFiles;
+}
 
 interface Shared<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     world: World;
@@ -383,17 +415,19 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                 }
 
                 if (url.pathname === '/') {
-                    return new Response(PAGE, {
-                        headers: {
-                            'content-type': 'text/html; charset=utf-8',
-                            // Not in anyone else's frame (where clicks and
-                            // keys could be tricked out of a player).
-                            'content-security-policy': "frame-ancestors 'none'",
-                            'x-frame-options': 'DENY',
-                            'x-content-type-options': 'nosniff',
-                            'referrer-policy': 'no-referrer',
+                    return new Response(PAGE, { headers: { ...HEADERS, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': PAGE_POLICY } });
+                }
+
+                if (url.pathname === '/wterm.js' || url.pathname === '/wterm.css') {
+                    return terminal().then(
+                        ({ script, style }) => url.pathname === '/wterm.js'
+                            ? new Response(script, { headers: { ...HEADERS, 'content-type': 'text/javascript; charset=utf-8' } })
+                            : new Response(style, { headers: { ...HEADERS, 'content-type': 'text/css; charset=utf-8' } }),
+                        (error: unknown) => {
+                            log(error instanceof Error ? error.message : String(error));
+                            return new Response("The terminal couldn't be built", { status: 500 });
                         },
-                    });
+                    );
                 }
 
                 return new Response('Not found', { status: 404 });
@@ -412,7 +446,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                             ws.close();
                         },
                         ws.data.address,
-                        // (xterm.js shows any colour.)
+                        // (wterm shows any colour.)
                         'true',
                     );
                     ws.data.connection = connection;
@@ -454,6 +488,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             },
         });
         log(`Web: http://${host}:${web.port}/`);
+        // (Built now, so the first player doesn't wait for it.)
+        void terminal().catch(() => undefined);
     }
 
     // ---- Idle players

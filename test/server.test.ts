@@ -289,14 +289,21 @@ describe('the web', () => {
         const page = await fetch(`${base}/`);
         expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
         const html = await page.text();
-        expect(html).toContain('@xterm/xterm@5.5.0');
-        // Everything from elsewhere is checked against its hash.
-        const outside = html.match(/<(script|link)[^>]*(src|href)="https:[^>]*>/g) ?? [];
-        expect(outside).toHaveLength(2);
-        for (const tag of outside) {
-            expect(tag).toMatch(/integrity="sha384-[A-Za-z0-9+/=]{64}"/);
-        }
-        expect(page.headers.get('content-security-policy')).toBe("frame-ancestors 'none'");
+        // Nothing comes from elsewhere: the terminal is served from here.
+        expect(html).not.toMatch(/(src|href)="https?:/);
+        expect(html).toContain("from '/wterm.js'");
+        const policy = page.headers.get('content-security-policy') ?? '';
+        expect(policy).toContain("default-src 'self'");
+        expect(policy).toContain("frame-ancestors 'none'");
+        // (The page's own script, by its hash.)
+        const script = /<script type="module">([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+        expect(policy).toContain(`'sha256-${new Bun.CryptoHasher('sha256').update(script).digest('base64')}'`);
+        const js = await fetch(`${base}/wterm.js`);
+        expect(js.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+        expect(await js.text()).toContain('WTerm');
+        const css = await fetch(`${base}/wterm.css`);
+        expect(css.headers.get('content-type')).toBe('text/css; charset=utf-8');
+        expect(await css.text()).toContain('.wterm');
         expect(page.headers.get('x-content-type-options')).toBe('nosniff');
         expect((await fetch(`${base}/nope`)).status).toBe(404);
         expect((await fetch(`${base}/ws`)).status).toBe(400);
