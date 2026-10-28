@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import { Realm, OTHER_PLAYER } from '../src/realm.ts';
-import { rankings, whoIsOnline } from '../src/lists.ts';
+import { rankings, whoIsHere, whoIsOnline } from '../src/lists.ts';
 import { Store } from '../src/store.ts';
 import { makeGame, newPlayer, scriptContext, testWorld, type TestFlags } from '@fq2ts/engine/fixture';
 import { screenText } from '@fq2ts/engine/testing';
@@ -84,7 +84,7 @@ describe('Realm', () => {
     });
 });
 
-describe('P and L', () => {
+describe('P, S and L', () => {
     test("P lists who's in the realm and where, marking the player", async () => {
         const realm = new Realm<TestFlags>();
         member(realm, 1, 'Ann');
@@ -104,6 +104,49 @@ describe('P and L', () => {
             ],
         });
         await whoIsOnline(realm, world, 1)(g);
+        expect(term.remaining).toBe(0);
+    });
+
+    test('S names the others on this screen, in the status bar', async () => {
+        const realm = new Realm<TestFlags>();
+        member(realm, 1, 'Ann');
+        member(realm, 2, 'Cat');
+        member(realm, 3, '{Bob}');
+        member(realm, 4, 'Far');
+        member(realm, 5, 'Arriving');
+        for (const [id, screen] of [[1, 1], [2, 1], [3, 1], [4, 2]] as const) {
+            realm.moved(id, { screen, x: 10, y: 10 });
+        }
+        expect(realm.onScreen(1)).toEqual(['{Bob}', 'Cat']);
+        expect(realm.onScreen(5)).toEqual([]);
+
+        const { g } = scriptContext({ steps: [] });
+        const write = spyOn(g, 'write');
+        await whoIsHere(realm, 1)(g);
+        expect(write).toHaveBeenCalledWith('{white}Here: {lightcyan}{{Bob}{white}, {lightcyan}Cat');
+        await whoIsHere(realm, 4)(g);
+        expect(write).toHaveBeenLastCalledWith('{gray}No one else is on this screen.');
+    });
+
+    test('S lists them when there are too many for the status bar', async () => {
+        const realm = new Realm<TestFlags>();
+        member(realm, 1, 'Ann');
+        realm.moved(1, { screen: 1, x: 1, y: 1 });
+        for (let id = 2; id <= 12; id++) {
+            member(realm, id, `Adventurer ${id}`);
+            realm.moved(id, { screen: 1, x: id, y: 1 });
+        }
+        const { g, term } = scriptContext({
+            steps: [
+                () => {
+                    const text = screenText(term.screen);
+                    expect(text).toContain('On this screen (11)');
+                    expect(text).toContain('Adventurer 12');
+                    return 'escape';
+                },
+            ],
+        });
+        await whoIsHere(realm, 1)(g);
         expect(term.remaining).toBe(0);
     });
 

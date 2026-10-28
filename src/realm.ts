@@ -1,6 +1,7 @@
 // The realm: who's playing on this server and where, so that each player
 // sees the others on their screen, hears when someone arrives or leaves,
-// can talk to them, and can see who's about (P) and how everyone ranks (L).
+// can talk to them, and can see who's about (P, S) and how everyone ranks
+// (L).
 //
 // The server is one process, so there are no locks: a member's game is
 // told about changes (Game.othersChanged, Game.notify) and draws them when
@@ -130,6 +131,19 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
             }
         }
         return near.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // The others on a member's screen, by name.
+    public onScreen(accountId: number): string[] {
+        const screen = this.members.get(accountId)?.place?.screen;
+        if (screen === undefined) {
+            return [];
+        }
+
+        return [...this.members]
+            .filter(([id, { game, place }]) => id !== accountId && game !== null && place?.screen === screen)
+            .map(([, { name }]) => name)
+            .sort((a, b) => a.localeCompare(b));
     }
 
     // Everyone playing, by name, with where they are (if they've a place yet).

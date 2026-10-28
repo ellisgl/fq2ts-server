@@ -1,5 +1,5 @@
-// The keys the server adds to the game: P lists who's playing and where, L
-// every player there is, ranked by experience.
+// The keys the server adds to the game: P lists who's playing and where, S
+// who's on this screen, L every player there is, ranked by experience.
 
 import type { FlagRecord } from '@fq2ts/engine/player';
 import type { Script } from '@fq2ts/engine/script';
@@ -19,6 +19,29 @@ export function whoIsOnline<F extends FlagRecord, W extends WorldRecord = WorldR
             return `{white}${escapeMarkup(name).padEnd(NAME_WIDTH)}{gray}${escapeMarkup(where)}${id === accountId ? ' {yellow}(you)' : ''}`;
         });
         await g.scroll(lines, `Who's in the realm (${lines.length})`);
+    };
+}
+
+// The widest the names S shows can be in the status bar; more go in a list.
+const STATUS_WIDTH = 78;
+
+// S: the names of the others on this screen (the ☻s), in the status bar,
+// or in a list if there are too many for it.
+export function whoIsHere<F extends FlagRecord, W extends WorldRecord = WorldRecord>(realm: Realm<F, W>, accountId: number): Script<F, W> {
+    return async (g) => {
+        const names = realm.onScreen(accountId);
+        if (!names.length) {
+            g.write('{gray}No one else is on this screen.');
+            return;
+        }
+
+        const line = `Here: ${names.join(', ')}`;
+        if (line.length <= STATUS_WIDTH) {
+            g.write(`{white}Here: ${names.map((name) => `{lightcyan}${escapeMarkup(name)}`).join('{white}, ')}`);
+            return;
+        }
+
+        await g.scroll(names.map((name) => `{lightcyan}${escapeMarkup(name)}`), `On this screen (${names.length})`);
     };
 }
 

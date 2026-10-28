@@ -31,7 +31,7 @@ import { Gifts } from './gifts.ts';
 import { bountyBoard } from './bounty.ts';
 import { DEFAULT_RULES, type Rules } from './rules.ts';
 import { Guard, normalAddress, webAddress } from './guard.ts';
-import { rankings, whoIsOnline } from './lists.ts';
+import { rankings, whoIsHere, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2ts/engine/text';
 import { Store } from './store.ts';
@@ -337,6 +337,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         K: { help: 'the bounty board (in town)', run: bountyBoard({ realm, store: shared.store, world: shared.world, me, now }) },
                         A: { help: 'accept (or refuse) what you were offered', run: gifts.accept(me) },
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
+                        S: { help: 'the names of the players on this screen', run: whoIsHere(realm, id) },
                         ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, kickAddress, log }) } } : {}),
                         L: { help: 'every player, ranked', run: rankings(realm, shared.store) },
                     },
