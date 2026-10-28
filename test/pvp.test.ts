@@ -4,6 +4,7 @@ import { FIGHTS_PER_DAY, asMonster, attack } from '../src/pvp.ts';
 import { Realm } from '../src/realm.ts';
 import { Store } from '../src/store.ts';
 import { content, itemCatalogue, makeGame, newPlayer, scriptContext, testWorld, type TestFlags, type TestWorld } from '@fq2ts/engine/fixture';
+import { restorePlayer, type Player } from '@fq2ts/engine/player';
 import { screenText } from '@fq2ts/engine/testing';
 
 const HOUR = 3_600_000;
@@ -248,5 +249,115 @@ describe('fights between players', () => {
         await h(g);
         expect(heard).toEqual([]);
         expect(days.fights(1)).toBe(0);
+    });
+});
+
+describe('fights with players who are away', () => {
+    // Ann (1) playing at 10,10 on screen 1; Bob (2) away, saved next to her
+    // (or wherever he's put).
+    function field({ bob = newPlayer({ gold: 80, exp: 100, hp: 5 }), bobAt = { screen: 1, x: 11, y: 10 }, world = testWorld() } = {}) {
+        const store = new Store(':memory:');
+        store.createAccount('Ann', 'h', 'a@example.com');
+        store.createAccount('Bob', 'h', 'b@example.com');
+        store.savePlayer(2, { ...bob, ...bobAt });
+        const realm = new Realm<TestFlags, TestWorld>({ away: (screen) => store.awayOn(screen, new Date(0)) });
+        const days = new Days({ store, content, realm, now: () => MIDDAY });
+        realm.claim(1, 'Ann');
+        realm.moved(1, { screen: 1, x: 10, y: 10 });
+        const restore = (id: number): Player<TestFlags> | null => {
+            const saved = store.loadPlayer(id);
+            return saved === null ? null : restorePlayer(content.start, saved, itemCatalogue);
+        };
+        const h = attack({ realm, restore, store, days, world, items: itemCatalogue, me: { id: 1, name: 'Ann' }, now: () => MIDDAY });
+        return { store, days, h, realm };
+    }
+
+    test('winning: Ann takes from his save, leaves him on 1 hp, and writes to tell him', async () => {
+        random = spyOn(Math, 'random').mockReturnValue(0.99);
+        const { store, days, h } = field();
+        const { g, term } = scriptContext({
+            player: newPlayer({ gold: 10 }),
+            steps: [
+                () => {
+                    expect(screenText(term.screen)).toContain('Bob (sleeping)');
+                    return 'enter';
+                },
+                'enter',
+                'x',
+                'x',
+            ],
+        });
+        await h(g);
+        expect(term.remaining).toBe(0);
+        expect([g.gold, g.exp]).toEqual([50, 10]);
+        expect(store.loadPlayer(2)).toMatchObject({ gold: 40, hp: 1, screen: 1, x: 11, y: 10 });
+        expect(store.letters(2)).toMatchObject([{ from: 'Ann', text: 'I found you sleeping, and beat you. I took $40.' }]);
+        expect(store.news(0).map(({ text }) => text)).toEqual(['{lightred}Ann beat Bob in a fight.']);
+        expect(days.fights(1)).toBe(1);
+    });
+
+    test('losing: Bob gets half of what Ann had, in his save, and hears of it', async () => {
+        random = spyOn(Math, 'random').mockReturnValue(0.99);
+        const { store, h } = field({ bob: newPlayer({ gold: 0, hp: 9999, strength: 500 }) });
+        const { g } = scriptContext({ player: newPlayer({ gold: 30 }), steps: ['enter', 'enter', 'enter', 'x'] });
+        await h(g);
+        expect([g.gold, g.hp]).toEqual([15, 1]);
+        expect(store.loadPlayer(2)).toMatchObject({ gold: 15 });
+        expect(store.letters(2)[0]?.text).toBe('I found you sleeping and attacked you, but you beat me off. You took $15.');
+    });
+
+    test('on a safe screen, only those sleeping there can be fought', async () => {
+        const world = testWorld();
+        world.setSafe(1, true);
+        const { h, realm } = field({ world });
+        // (Cat is playing next to Ann, and can't be fought here.)
+        const { game } = makeGame();
+        Object.defineProperty(game, 'waiting', { get: () => true });
+        realm.claim(3, 'Cat');
+        realm.attach(3, game);
+        realm.moved(3, { screen: 1, x: 9, y: 10 });
+        const { g, term } = scriptContext({
+            steps: [
+                () => {
+                    const text = screenText(term.screen);
+                    expect(text).toContain('Bob (sleeping)');
+                    expect(text).not.toContain('Cat');
+                    return 'escape';
+                },
+            ],
+        });
+        await h(g);
+        expect(term.remaining).toBe(0);
+    });
+
+    test('not someone asleep at an inn, already beaten, or back in the realm', async () => {
+        const said = async (h: ReturnType<typeof field>['h'], steps: string[] = []): Promise<string> => {
+            const { g, term } = scriptContext({ steps });
+            await h(g);
+            return screenText(term.screen);
+        };
+        const inn = field();
+        inn.store.setAsleep(2, true);
+        expect(await said(inn.h)).toContain("There's no one close enough to fight.");
+
+        expect(await said(field({ bob: newPlayer({ hp: 1 }) }).h, ['enter', 'x'])).toContain('Bob is in no state to fight.');
+
+        // (Bob comes back as Ann picks him.)
+        const back = field();
+        const { g, term } = scriptContext({
+            steps: [
+                () => {
+                    back.realm.claim(2, 'Bob');
+                    return 'enter';
+                },
+                () => {
+                    expect(screenText(term.screen)).toContain("Bob isn't there any more.");
+                    return 'x';
+                },
+            ],
+        });
+        await back.h(g);
+        expect(term.remaining).toBe(0);
+        expect(back.days.fights(1)).toBe(0);
     });
 });

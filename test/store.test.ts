@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, setSystemTime, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
 import { CODE_MINUTES, CODE_TRIES, Store, validName } from '../src/store.ts';
@@ -116,6 +116,60 @@ test('a database from before the rankings gets them from the saves', () => {
     db.run('INSERT INTO players (account_id, state, saved_at) VALUES (1, \'{"exp": 77, "gold": 3}\', \'then\')');
     db.close();
     expect(new Store(path).rankings(10).players).toEqual([{ name: 'Old', exp: 77, gold: 3 }]);
+});
+
+describe('players who are away', () => {
+    afterEach(() => {
+        setSystemTime();
+    });
+
+    // Ann (1), Bob (2) and Cat (3), saved on screens 1, 1 and 2.
+    function saved(): Store {
+        const store = new Store(':memory:');
+        for (const [name, screen, x] of [['Ann', 1, 5], ['Bob', 1, 9], ['Cat', 2, 3]] as const) {
+            store.savePlayer(store.createAccount(name, 'h', `${name}@example.com`)?.id ?? 0, { name, screen, x, y: 7 });
+        }
+        return store;
+    }
+
+    test('where each player was is kept beside their save, for awayOn', () => {
+        const store = saved();
+        expect(store.awayOn(1, new Date(0))).toEqual([
+            { accountId: 1, name: 'Ann', x: 5, y: 7 },
+            { accountId: 2, name: 'Bob', x: 9, y: 7 },
+        ]);
+        expect(store.awayOn(3, new Date(0))).toEqual([]);
+    });
+
+    test('those asleep at an inn are not found', () => {
+        const store = saved();
+        store.setAsleep(1, true);
+        expect(store.awayOn(1, new Date(0)).map(({ name }) => name)).toEqual(['Bob']);
+        store.setAsleep(1, false);
+        expect(store.awayOn(1, new Date(0)).map(({ name }) => name)).toEqual(['Ann', 'Bob']);
+    });
+
+    test('only those who have played since then; a save made while away is not playing', () => {
+        setSystemTime(new Date('2026-10-01T12:00:00Z'));
+        const store = saved();
+        setSystemTime(new Date('2026-10-05T12:00:00Z'));
+        store.savePlayer(2, { name: 'Bob', screen: 1, x: 9, y: 7 });
+        // (Ann is attacked while she's away, which saves her too.)
+        store.savePlayer(1, { name: 'Ann', screen: 1, x: 5, y: 7, gold: 0 }, { played: false });
+        expect(store.awayOn(1, new Date('2026-10-03T00:00:00Z')).map(({ name }) => name)).toEqual(['Bob']);
+        expect(store.loadPlayer(1)).toMatchObject({ gold: 0 });
+    });
+});
+
+test('a database from before players were kept on the map gets where they were from the saves', () => {
+    const path = join(tempDir(), 'before-away.sqlite');
+    const db = new Database(path, { create: true });
+    // (Steps 1 to 10 of the layout, then a save written as it was.)
+    migrate(db, MIGRATIONS.slice(0, 10));
+    db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
+    db.run(`INSERT INTO players (account_id, state, saved_at) VALUES (1, '{"screen": 4, "x": 6, "y": 8}', '${new Date().toISOString()}')`);
+    db.close();
+    expect(new Store(path).awayOn(4, new Date(0))).toEqual([{ accountId: 1, name: 'Old', x: 6, y: 8 }]);
 });
 
 describe('one address, one account', () => {

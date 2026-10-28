@@ -156,6 +156,25 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: "Where players are while they're away, and who's asleep in an inn",
+        up: (db) => {
+            db.run(`
+                ALTER TABLE players ADD COLUMN screen INTEGER;
+                ALTER TABLE players ADD COLUMN x INTEGER;
+                ALTER TABLE players ADD COLUMN y INTEGER;
+                ALTER TABLE players ADD COLUMN asleep INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE players ADD COLUMN played_at TEXT;
+                UPDATE players SET
+                    screen = CAST(json_extract(state, '$.screen') AS INTEGER),
+                    x = CAST(json_extract(state, '$.x') AS INTEGER),
+                    y = CAST(json_extract(state, '$.y') AS INTEGER)
+                WHERE json_valid(state);
+                UPDATE players SET played_at = saved_at;
+                CREATE INDEX players_screen ON players (screen);
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

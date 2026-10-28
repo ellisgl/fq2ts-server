@@ -17,7 +17,7 @@ import type { Bestiary } from '@fq2ts/engine/combat';
 import type { ItemCatalogue } from '@fq2ts/engine/items';
 import { readGameData } from '@fq2ts/engine/data';
 import { applyMods, describeMod, type LoadedMod } from '@fq2ts/engine/mods';
-import type { FlagRecord } from '@fq2ts/engine/player';
+import { restorePlayer, type FlagRecord, type Player } from '@fq2ts/engine/player';
 import { field, integer, oneOf, record, string } from '@fq2ts/engine/validate';
 import { RemoteIO } from './remote.ts';
 import { logMailer, type Mailer } from './mail.ts';
@@ -26,6 +26,7 @@ import { Realm } from './realm.ts';
 import { ServerWorld } from './world-state.ts';
 import { Days } from './days.ts';
 import { attack } from './pvp.ts';
+import { inn } from './inn.ts';
 import { adminMenu } from './admin.ts';
 import { Gifts } from './gifts.ts';
 import { bountyBoard } from './bounty.ts';
@@ -34,7 +35,7 @@ import { Guard, normalAddress, webAddress } from './guard.ts';
 import { rankings, whoIsHere, whoIsOnline } from './lists.ts';
 import { lostFight, mail, news, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2ts/engine/text';
-import { Store } from './store.ts';
+import { Store, type AwayPlayer } from './store.ts';
 import { Clean, DEFAULT_BAD_WORDS } from './clean.ts';
 import type { WorldRecord } from '@fq2ts/engine/shared';
 
@@ -220,7 +221,26 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             }
         }
     };
-    const realm = new Realm<F, W>({ chatWait: rules.chatWaitSeconds * 1000 });
+    const now = options.now ?? Date.now;
+    // Players who've left stay on the map, sleeping, for a while.
+    const away = (screen: number): AwayPlayer[] => (rules.awayDays > 0 ? shared.store.awayOn(screen, new Date(now() - rules.awayDays * 86_400_000)) : []);
+    const realm = new Realm<F, W>({ chatWait: rules.chatWaitSeconds * 1000, away });
+    // A player's save, as a player, for fights with players who are away.
+    const restore = (accountId: number): Player<F> | null => {
+        const saved = shared.store.loadPlayer(accountId);
+        if (saved === null) {
+            return null;
+        }
+
+        try {
+            const player = restorePlayer(shared.content.start, saved, shared.items);
+            shared.content.upgradeSave?.(saved, player);
+            return player;
+        } catch (error) {
+            log(`A save couldn't be read (account ${accountId}): ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+        }
+    };
     const clean = new Clean(options.badWords ?? DEFAULT_BAD_WORDS);
     const gifts = new Gifts<F, W>({ realm, store: shared.store, items: shared.items });
     // Whose connection is whose (to kick them).
@@ -232,7 +252,6 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             connection.close();
         }
     };
-    const now = options.now ?? Date.now;
     const days = new Days<F, W>({ store: shared.store, content: shared.content, realm, now });
     // Accounts no one finished making give their names back (now, and as
     // each day turns).
@@ -310,6 +329,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                 playingOn.set(id, connection);
                 const talking = { realm, store: shared.store, me, clean };
                 const isNew = shared.store.loadPlayer(id) === null;
+                // (Back from an inn, if they were in one.)
+                shared.store.setAsleep(id, false);
                 // (A player back on a new day starts it afresh.)
                 days.arrive(id);
                 const game = new Game({
@@ -332,7 +353,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         Y: { help: 'yell to everyone in the realm', run: yell(talking) },
                         W: { help: 'your mail: read and write letters', run: mail({ ...talking, lettersPerVisit: rules.lettersPerVisit }) },
                         D: { help: 'the daily news', run: news(talking) },
-                        H: { help: 'fight a player next to you', run: attack({ realm, store: shared.store, days, world: shared.world, items: shared.items, me, now, fightsPerDay: rules.fightsPerDay, goldPercent: rules.pvpGoldPercent, expPercent: rules.pvpExpPercent }) },
+                        H: { help: 'fight a player next to you', run: attack({ realm, restore, store: shared.store, days, world: shared.world, items: shared.items, me, now, fightsPerDay: rules.fightsPerDay, goldPercent: rules.pvpGoldPercent, expPercent: rules.pvpExpPercent }) },
                         G: { help: 'give gold or an item to a player next to you', run: gifts.give(me) },
                         K: { help: 'the bounty board (in town)', run: bountyBoard({ realm, store: shared.store, world: shared.world, me, now }) },
                         A: { help: 'accept (or refuse) what you were offered', run: gifts.accept(me) },
@@ -340,6 +361,21 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         S: { help: 'the names of the players on this screen', run: whoIsHere(realm, id) },
                         ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, kickAddress, log }) } } : {}),
                         L: { help: 'every player, ranked', run: rankings(realm, shared.store) },
+                        Z: {
+                            help: 'take a room at an inn: no one can find you while you are away',
+                            run: inn({
+                                world: shared.world,
+                                cost: rules.innCost,
+                                sleep: () => {
+                                    // (Saved first: a new player may not have been yet.)
+                                    connection.session?.save();
+                                    shared.store.setAsleep(id, true);
+                                    log(`${name} takes a room at an inn.`);
+                                    connection.say('You sleep soundly. Come back soon!');
+                                    connection.close();
+                                },
+                            }),
+                        },
                     },
                     worldStore,
                     news: (text) => {

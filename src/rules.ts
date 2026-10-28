@@ -8,6 +8,7 @@ import { CHAT_WAIT } from './realm.ts';
 import { MAX_EMAILS } from './session.ts';
 import { MAILBOX, NEWS_DAYS } from './store.ts';
 import { LETTERS_PER_VISIT } from './talk.ts';
+import { INN_COST } from './inn.ts';
 import { DEFAULT_GUARD, type GuardRules } from './guard.ts';
 
 // (The guard's rules, on connections and wrong passwords, are among them.)
@@ -30,6 +31,11 @@ export interface Rules extends GuardRules {
     // Days before an account that never confirmed its email (or played) is
     // removed, freeing its name.
     unfinishedAccountDays: number;
+    // What a room at an inn costs.
+    innCost: number;
+    // Days players who've left stay on the map (sleeping where they were,
+    // for anyone to find); 0 takes them off as they leave.
+    awayDays: number;
 }
 
 export const DEFAULT_RULES: Rules = {
@@ -42,6 +48,8 @@ export const DEFAULT_RULES: Rules = {
     newsDays: NEWS_DAYS,
     emailsPerVisit: MAX_EMAILS,
     unfinishedAccountDays: 7,
+    innCost: INN_COST,
+    awayDays: 7,
     ...DEFAULT_GUARD,
 };
 
@@ -65,6 +73,8 @@ export const RULE_OPTIONS = [
     { rule: 'newsDays', option: 'news-days', help: 'days the news is kept', min: 1 },
     { rule: 'emailsPerVisit', option: 'emails-per-visit', help: 'emails (codes) a connection can ask for', min: 1 },
     { rule: 'unfinishedAccountDays', option: 'unfinished-account-days', help: 'days before an account never confirmed is removed', min: 1 },
+    { rule: 'innCost', option: 'inn-cost', help: 'what a room at an inn costs', min: 0 },
+    { rule: 'awayDays', option: 'away-days', help: 'days players who leave stay on the map, sleeping (0: none do)', min: 0 },
     { rule: 'connectionsPerMinute', option: 'connections-per-minute', help: 'connections an address can make a minute', min: 1 },
     { rule: 'loginFailuresPerAddress', option: 'login-failures-per-address', help: 'wrong passwords from an address before logins from it stop', min: 1 },
     { rule: 'loginFailuresPerAccount', option: 'login-failures-per-account', help: 'wrong passwords for an account before logins to it stop', min: 1 },

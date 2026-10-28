@@ -387,16 +387,39 @@ export class Store {
     }
 
 
-    // (Its experience and gold are kept beside it too, for the rankings.)
-    public savePlayer(accountId: number, player: unknown): void {
+    // (Its experience and gold are kept beside it too, for the rankings, and
+    // where it is, for others to find it while its player is away.) A save
+    // made while they're away (someone attacked them) isn't them playing.
+    public savePlayer(accountId: number, player: unknown, { played = true } = {}): void {
         const whole = (key: string): number => {
             const value: unknown = typeof player === 'object' && player !== null && key in player ? Reflect.get(player, key) : 0;
             return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
         };
+        const at = now();
         this.db
-            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold) VALUES ($id, $state, $now, $exp, $gold)
-                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold`)
-            .run({ id: accountId, state: JSON.stringify(player), now: now(), exp: whole('exp'), gold: whole('gold') });
+            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold, screen, x, y, played_at) VALUES ($id, $state, $now, $exp, $gold, $screen, $x, $y, $now)
+                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold, screen = $screen, x = $x, y = $y,
+                    played_at = CASE WHEN $played THEN $now ELSE played_at END`)
+            .run({ id: accountId, state: JSON.stringify(player), now: at, exp: whole('exp'), gold: whole('gold'), screen: whole('screen'), x: whole('x'), y: whole('y'), played: played ? 1 : 0 });
+    }
+
+    // Whether the player has taken a room at an inn (until they're back).
+    public setAsleep(accountId: number, asleep: boolean): void {
+        this.db.query('UPDATE players SET asleep = $asleep WHERE account_id = $id').run({ id: accountId, asleep: asleep ? 1 : 0 });
+    }
+
+    // The players left on a screen, out in the open (not asleep in an inn),
+    // who've played since `since`, by name. Whoever's playing now is among
+    // them too: leaving them out is for the caller, who knows who that is.
+    public awayOn(screen: number, since: Date): AwayPlayer[] {
+        const rows: unknown = this.db
+            .query(`SELECT a.id, a.name, p.x, p.y FROM players p JOIN accounts a ON a.id = p.account_id
+                WHERE p.screen = $screen AND p.asleep = 0 AND p.played_at >= $since ORDER BY a.name COLLATE NOCASE`)
+            .all({ screen, since: since.toISOString() });
+        return (Array.isArray(rows) ? rows : []).map((row: unknown) => {
+            const r = record(row, 'player');
+            return { accountId: field(r, 'id', 'player', integer), name: field(r, 'name', 'player', string), x: field(r, 'x', 'player', integer), y: field(r, 'y', 'player', integer) };
+        });
     }
 
     // The players with the most experience, most first (then by name), and
@@ -414,6 +437,14 @@ export class Store {
             total: count === null ? 0 : field(record(count, 'count'), 'n', 'count', integer),
         };
     }
+}
+
+// A player left on the map while they're away.
+export interface AwayPlayer {
+    accountId: number;
+    name: string;
+    x: number;
+    y: number;
 }
 
 const now = (): string => new Date().toISOString();

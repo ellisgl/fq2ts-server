@@ -2,7 +2,7 @@
 
 Multiplayer for `@fq2ts/engine` games, played in a web browser (with
 [wterm](https://github.com/vercel-labs/wterm), which the server builds and
-serves itself), with accounts with confirmed email addresses and password resets, clean mode (swear words starred out), and players saved in SQLite. A game runs it with its content:
+serves itself), with accounts with confirmed email addresses and password resets, clean mode (swear words starred out), players who stay on the map while they're away (safe only at an inn), and players saved in SQLite. A game runs it with its content:
 
 ```ts
 import { runServer } from '@fq2ts/server/cli';

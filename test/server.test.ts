@@ -1,6 +1,7 @@
 // The whole server, on real sockets: the web page and its web socket.
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
+import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startServer, type RunningServer, type ServerOptions } from '../src/server.ts';
 import { ScreenModel } from './screen-model.ts';
@@ -139,6 +140,64 @@ describe('playing', () => {
         again.send('hero\rsecret1\r');
         await again.sees('HP 100/100');
         expect(logs.filter((line) => line === 'Hero enters the realm.')).toHaveLength(2);
+    });
+
+    test('a player who leaves sleeps where they were: the next one sees them, and S names them', async () => {
+        const server = start();
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        ann.send('\x1b');
+        await ann.sees('Return');
+        ann.send(`${DOWN}${DOWN}\r`);
+        await until('Ann to be saved', () => logs.includes('Ann leaves the realm.'));
+
+        const bob = await browser(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        bob.send('s');
+        await bob.sees('Here: Ann (sleeping)');
+    });
+
+    test('a player who takes a room at an inn is nowhere to be found, until they are back', async () => {
+        // (Test Quest, with its first screen an inn.)
+        const data = tempDir();
+        cpSync(FIXTURE_DATA, data, { recursive: true });
+        const first = join(data, 'maps', '0001.json');
+        writeFileSync(first, JSON.stringify({ ...JSON.parse(readFileSync(first, 'utf8')), inn: true }));
+        const server = start({ dataDir: data });
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        ann.send('z');
+        await ann.sees('A room for the night');
+        ann.send('\r');
+        await ann.closed();
+        expect(ann.received()).toContain('You sleep soundly. Come back soon!');
+        await until('Ann to be saved', () => logs.includes('Ann leaves the realm.'));
+        expect(logs).toContain('Ann takes a room at an inn.');
+
+        const bob = await browser(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        bob.send('s');
+        await bob.sees('No one else is on this screen.');
+
+        // Back, she's out of her room: when she leaves again, she sleeps in the open.
+        const again = await browser(port);
+        await again.sees('Log');
+        again.send('\r');
+        await again.sees('Name:');
+        again.send('ann\rsecret1\r');
+        await again.sees('HP');
+        again.send('\x1b');
+        await again.sees('Return');
+        again.send(`${DOWN}${DOWN}\r`);
+        await until('Ann to leave again', () => logs.filter((line) => line === 'Ann leaves the realm.').length === 2);
+        bob.send('s');
+        await bob.sees('Ann (sleeping)');
     });
 
     test('a window smaller than 80x25 is turned away', async () => {

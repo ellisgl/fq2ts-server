@@ -25,23 +25,24 @@ export function whoIsOnline<F extends FlagRecord, W extends WorldRecord = WorldR
 // The widest the names S shows can be in the status bar; more go in a list.
 const STATUS_WIDTH = 78;
 
-// S: the names of the others on this screen (the ☻s), in the status bar,
-// or in a list if there are too many for it.
+// S: the names of the others on this screen (the ☻s), those who are away
+// marked, in the status bar, or in a list if there are too many for it.
 export function whoIsHere<F extends FlagRecord, W extends WorldRecord = WorldRecord>(realm: Realm<F, W>, accountId: number): Script<F, W> {
     return async (g) => {
-        const names = realm.onScreen(accountId);
-        if (!names.length) {
+        const here = realm.onScreen(accountId);
+        if (!here.length) {
             g.write('{gray}No one else is on this screen.');
             return;
         }
 
-        const line = `Here: ${names.join(', ')}`;
+        const shown = here.map(({ name, away }) => `{lightcyan}${escapeMarkup(name)}${away ? ' {gray}(sleeping)' : ''}`);
+        const line = `Here: ${here.map(({ name, away }) => `${name}${away ? ' (sleeping)' : ''}`).join(', ')}`;
         if (line.length <= STATUS_WIDTH) {
-            g.write(`{white}Here: ${names.map((name) => `{lightcyan}${escapeMarkup(name)}`).join('{white}, ')}`);
+            g.write(`{white}Here: ${shown.join('{white}, ')}`);
             return;
         }
 
-        await g.scroll(names.map((name) => `{lightcyan}${escapeMarkup(name)}`), `On this screen (${names.length})`);
+        await g.scroll(shown, `On this screen (${here.length})`);
     };
 }
 

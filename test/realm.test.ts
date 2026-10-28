@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from 'bun:test';
-import { Realm, OTHER_PLAYER } from '../src/realm.ts';
+import { AWAY_PLAYER, Realm, OTHER_PLAYER } from '../src/realm.ts';
 import { rankings, whoIsHere, whoIsOnline } from '../src/lists.ts';
 import { Store } from '../src/store.ts';
 import { makeGame, newPlayer, scriptContext, testWorld, type TestFlags } from '@fq2ts/engine/fixture';
@@ -70,6 +70,22 @@ describe('Realm', () => {
         expect(realm.figures(2, 2)).toEqual([]);
     });
 
+    test('players who are away are drawn dimmer, under those playing, and found next to a member', () => {
+        // (Dan is away at 11,10 and 30,10; Bob is listed as away too, but is
+        // playing, so is drawn where he is.)
+        const realm = new Realm<TestFlags>({
+            away: (screen) => (screen === 1 ? [{ accountId: 4, name: 'Dan', x: 11, y: 10 }, { accountId: 5, name: 'Eve', x: 30, y: 10 }, { accountId: 2, name: 'Bob', x: 1, y: 1 }] : []),
+        });
+        member(realm, 1, 'Ann');
+        member(realm, 2, 'Bob');
+        realm.moved(1, { screen: 1, x: 10, y: 10 });
+        realm.moved(2, { screen: 1, x: 12, y: 10 });
+        expect(realm.figures(1, 1)).toEqual([{ x: 11, y: 10, ...AWAY_PLAYER }, { x: 30, y: 10, ...AWAY_PLAYER }, { x: 12, y: 10, ...OTHER_PLAYER }]);
+        expect(realm.nearAway(1).map(({ name }) => name)).toEqual(['Dan']);
+        expect(realm.nearAway(2).map(({ name }) => name)).toEqual(['Dan']);
+        expect(realm.nearAway(9)).toEqual([]);
+    });
+
     test('online lists who is playing, by name, with where they are', () => {
         const realm = new Realm<TestFlags>();
         member(realm, 2, 'Zed');
@@ -107,8 +123,9 @@ describe('P, S and L', () => {
         expect(term.remaining).toBe(0);
     });
 
-    test('S names the others on this screen, in the status bar', async () => {
-        const realm = new Realm<TestFlags>();
+    test('S names the others on this screen, those who are away too, in the status bar', async () => {
+        // (Dozy is away on screen 1; Cat is listed there too, but is playing.)
+        const realm = new Realm<TestFlags>({ away: (screen) => (screen === 1 ? [{ accountId: 9, name: 'Dozy', x: 3, y: 3 }, { accountId: 2, name: 'Cat', x: 1, y: 1 }] : []) });
         member(realm, 1, 'Ann');
         member(realm, 2, 'Cat');
         member(realm, 3, '{Bob}');
@@ -117,13 +134,13 @@ describe('P, S and L', () => {
         for (const [id, screen] of [[1, 1], [2, 1], [3, 1], [4, 2]] as const) {
             realm.moved(id, { screen, x: 10, y: 10 });
         }
-        expect(realm.onScreen(1)).toEqual(['{Bob}', 'Cat']);
+        expect(realm.onScreen(1)).toEqual([{ name: '{Bob}', away: false }, { name: 'Cat', away: false }, { name: 'Dozy', away: true }]);
         expect(realm.onScreen(5)).toEqual([]);
 
         const { g } = scriptContext({ steps: [] });
         const write = spyOn(g, 'write');
         await whoIsHere(realm, 1)(g);
-        expect(write).toHaveBeenCalledWith('{white}Here: {lightcyan}{{Bob}{white}, {lightcyan}Cat');
+        expect(write).toHaveBeenCalledWith('{white}Here: {lightcyan}{{Bob}{white}, {lightcyan}Cat{white}, {lightcyan}Dozy {gray}(sleeping)');
         await whoIsHere(realm, 4)(g);
         expect(write).toHaveBeenLastCalledWith('{gray}No one else is on this screen.');
     });

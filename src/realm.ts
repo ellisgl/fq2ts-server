@@ -3,6 +3,10 @@
 // can talk to them, and can see who's about (P, S) and how everyone ranks
 // (L).
 //
+// Players who've left stay where they were, out in the open, unless they
+// took a room at an inn: the realm is told where (`away`), draws them
+// dimmer, and others can find them there.
+//
 // The server is one process, so there are no locks: a member's game is
 // told about changes (Game.othersChanged, Game.notify) and draws them when
 // it's next waiting for a key.
@@ -11,6 +15,7 @@ import type { Figure, Game } from '@fq2ts/engine/game';
 import type { FlagRecord } from '@fq2ts/engine/player';
 import { escapeMarkup } from '@fq2ts/engine/text';
 import type { WorldRecord } from '@fq2ts/engine/shared';
+import type { AwayPlayer } from './store.ts';
 
 // Where a player is.
 export interface Place {
@@ -27,8 +32,9 @@ export interface Member<F extends FlagRecord, W extends WorldRecord = WorldRecor
     place: Place | null;
 }
 
-// How other players look on the map.
+// How other players look on the map, and those who are away.
 export const OTHER_PLAYER = { ch: '☻', fg: 11 } as const;
+export const AWAY_PLAYER = { ch: '☻', fg: 7 } as const;
 // How soon a player can say (or yell) something again.
 export const CHAT_WAIT = 1000;
 
@@ -38,11 +44,14 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     private readonly lastSaid = new Map<number, number>();
     private readonly now: () => number;
     private readonly chatWait: number;
+    private readonly away: (screen: number) => AwayPlayer[];
 
     // `chatWait`: how long, in milliseconds, before a member can speak again.
-    public constructor({ now = Date.now, chatWait = CHAT_WAIT }: { now?(): number; chatWait?: number } = {}) {
+    // `away`: the players left on a screen (members among them are skipped).
+    public constructor({ now = Date.now, chatWait = CHAT_WAIT, away = () => [] }: { now?(): number; chatWait?: number; away?(screen: number): AwayPlayer[] } = {}) {
         this.now = now;
         this.chatWait = chatWait;
+        this.away = away;
     }
 
     // Takes an account into the realm; false if it's in already (playing
@@ -101,9 +110,10 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         }
     }
 
-    // The other players on a screen, as a member sees them.
+    // The other players on a screen, as a member sees them: those who are
+    // away first, so anyone playing is drawn over them.
     public figures(accountId: number, screen: number): Figure[] {
-        const figures: Figure[] = [];
+        const figures: Figure[] = this.awayOn(screen).map(({ x, y }) => ({ x, y, ...AWAY_PLAYER }));
         for (const [id, { place }] of this.members) {
             if (id !== accountId && place?.screen === screen) {
                 figures.push({ x: place.x, y: place.y, ...OTHER_PLAYER });
@@ -133,17 +143,29 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         return near.sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // The others on a member's screen, by name.
-    public onScreen(accountId: number): string[] {
+    // The others on a member's screen, by name, and whether they're away.
+    public onScreen(accountId: number): { name: string; away: boolean }[] {
         const screen = this.members.get(accountId)?.place?.screen;
         if (screen === undefined) {
             return [];
         }
 
-        return [...this.members]
-            .filter(([id, { game, place }]) => id !== accountId && game !== null && place?.screen === screen)
-            .map(([, { name }]) => name)
-            .sort((a, b) => a.localeCompare(b));
+        return [
+            ...[...this.members]
+                .filter(([id, { game, place }]) => id !== accountId && game !== null && place?.screen === screen)
+                .map(([, { name }]) => ({ name, away: false })),
+            ...this.awayOn(screen).map(({ name }) => ({ name, away: true })),
+        ].sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // The players away next to (or on) a member's place, by name.
+    public nearAway(accountId: number): AwayPlayer[] {
+        const mine = this.members.get(accountId)?.place;
+        if (!mine) {
+            return [];
+        }
+
+        return this.awayOn(mine.screen).filter(({ x, y }) => Math.abs(x - mine.x) <= 1 && Math.abs(y - mine.y) <= 1);
     }
 
     // Everyone playing, by name, with where they are (if they've a place yet).
@@ -204,6 +226,12 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
 
     public get size(): number {
         return this.members.size;
+    }
+
+    // The players away on a screen: not those in the realm now (who are
+    // drawn where they are).
+    private awayOn(screen: number): AwayPlayer[] {
+        return this.away(screen).filter(({ accountId }) => !this.members.has(accountId));
     }
 
     private tellOthers(accountId: number, text: string): void {
