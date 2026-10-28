@@ -324,6 +324,17 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             items: shared.items,
             config: shared.config,
             clean,
+            // Leaving anywhere but a room at an inn, the player sleeps where
+            // they are (if players who leave stay on the map at all).
+            leaveWarning: (player) => {
+                if (rules.awayDays === 0) {
+                    return null;
+                }
+
+                return shared.world.isInn(player.screen)
+                    ? "{yellow}You'll sleep here in the open. Take a room (Z) to be safe from attack."
+                    : "{yellow}You'll sleep here, where anyone can attack you. A room at an inn (Z) is safe.";
+            },
             makeGame: ({ id, name, admin }, autosave) => {
                 const me = { id, name };
                 playingOn.set(id, connection);

@@ -46,6 +46,9 @@ export interface SessionOptions<F extends FlagRecord, W extends WorldRecord = Wo
     mayEmail?(to: string): boolean;
     // Turns down new players' names with swear words in them.
     clean?: Clean;
+    // What to warn a player of as they leave the realm from where they
+    // are (they'll sleep there, open to attack), or null for nothing.
+    leaveWarning?(player: Player<F>): string | null;
     term: Terminal;
     store: Store;
     content: Content<F, W>;
@@ -526,7 +529,7 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
                 }
 
                 // Too many wrong passwords, and the front door says goodbye.
-                if (choice === 2 || this.wrongPasswords >= MAX_TRIES) {
+                if (this.wrongPasswords >= MAX_TRIES || (choice === 2 && (await this.leaveAnyway(game.playing)))) {
                     break;
                 }
 
@@ -540,15 +543,30 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
         }
     }
 
+    // Whether the player still wants to leave, once warned (if there's
+    // anything to warn them of). Escape goes back to the game.
+    private async leaveAnyway(player: Player<F>): Promise<boolean> {
+        const warning = this.options.leaveWarning?.(player) ?? null;
+        if (warning === null) {
+            return true;
+        }
+
+        return (await this.menu(['Return to the game', 'Leave anyway'], { note: warning, escape: 0 })) === 1;
+    }
+
     // ---- The screen
 
-    // The title screen with these options in its box. Escape picks the last.
-    private async menu(options: readonly string[]): Promise<number> {
+    // The title screen with these options in its box, and a note under it.
+    // Escape picks the last, unless told otherwise.
+    private async menu(options: readonly string[], { note = '', escape = options.length - 1 } = {}): Promise<number> {
         this.titleScreen();
+        if (note) {
+            this.notice(note);
+        }
         const { color, selectedColor } = this.options.content.title.menu;
         const box = this.box();
         const picked = await choose(this.term, options, { x: box.x + 1, y: box.y + 1, colors: { normal: color, selected: selectedColor } });
-        return picked < 0 ? options.length - 1 : picked;
+        return picked < 0 ? escape : picked;
     }
 
     // A question in the box; null if the player presses Escape. Questions

@@ -129,6 +129,9 @@ describe('playing', () => {
         first.send('\x1b');
         await first.sees('Return');
         first.send(`${DOWN}${DOWN}\r`);
+        // (Warned they'll sleep where they are, they leave anyway.)
+        await first.sees("You'll sleep here, where anyone can attack you. A room at an inn (Z) is safe.");
+        first.send(`${DOWN}\r`);
         await until('the player to be saved', () => logs.includes('Hero leaves the realm.'));
         first.send('\x1b');
         await first.closed();
@@ -151,6 +154,8 @@ describe('playing', () => {
         ann.send('\x1b');
         await ann.sees('Return');
         ann.send(`${DOWN}${DOWN}\r`);
+        await ann.sees('Leave anyway');
+        ann.send(`${DOWN}\r`);
         await until('Ann to be saved', () => logs.includes('Ann leaves the realm.'));
 
         const bob = await browser(port);
@@ -195,6 +200,8 @@ describe('playing', () => {
         again.send('\x1b');
         await again.sees('Return');
         again.send(`${DOWN}${DOWN}\r`);
+        await again.sees("You'll sleep here in the open. Take a room (Z) to be safe from attack.");
+        again.send(`${DOWN}\r`);
         await until('Ann to leave again', () => logs.filter((line) => line === 'Ann leaves the realm.').length === 2);
         bob.send('s');
         await bob.sees('Ann (sleeping)');

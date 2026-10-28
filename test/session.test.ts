@@ -25,13 +25,14 @@ interface Setup {
     // Where the title art's menu box is.
     box?: { x: number; y: number; width: number; height: number };
     clean?: Clean;
+    leaveWarning?(): string | null;
 }
 
 // The emails sent in this test, and the time it is (moved on by tests).
 let sent: Email[] = [];
 let clock = 0;
 
-function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false, loginShut, loginFailed, box, clean }: Setup = {}) {
+function session(steps: Steps, { store = new Store(':memory:'), claim = () => true, broken = false, brokenStart = false, mailFails = false, loginShut, loginFailed, box, clean, leaveWarning }: Setup = {}) {
     const term = new FakeTerminal();
     const logs: string[] = [];
     const released: number[] = [];
@@ -72,6 +73,7 @@ function session(steps: Steps, { store = new Store(':memory:'), claim = () => tr
         ...(loginShut ? { loginShut } : {}),
         ...(loginFailed ? { loginFailed } : {}),
         ...(clean ? { clean } : {}),
+        ...(leaveWarning ? { leaveWarning } : {}),
         hashPassword,
         verifyPassword,
     });
@@ -267,6 +269,37 @@ describe('new players', () => {
         );
         await run.run();
         expect(term.remaining).toBe(0);
+    });
+});
+
+describe('leaving the realm', () => {
+    test('a player warned of where they leave from can go back to the game (Escape too), or leave anyway', async () => {
+        const warning = "You'll sleep here, where anyone can attack you.";
+        const { run, term, logs } = session((t) => [
+            ...NEW_PLAYER,
+            ...typed('Hero'),
+            ...typed('secret1'),
+            ...typed('secret1'),
+            ...EMAIL,
+            ...CODE,
+            ...OPENING,
+            ...LEAVE_THE_REALM,
+            () => {
+                expect(row(t.screen, 25).trim()).toBe(warning);
+                expect(screenText(t.screen)).toContain('Leave anyway');
+                // (Back to the game.)
+                return 'enter';
+            },
+            ...LEAVE_THE_REALM,
+            // (Escape is back to the game too.)
+            'escape',
+            ...LEAVE_THE_REALM,
+            ...pick(1),
+            LEAVE,
+        ], { leaveWarning: () => warning });
+        await run.run();
+        expect(term.remaining).toBe(0);
+        expect(logs.filter((line) => line === 'Hero leaves the realm.')).toHaveLength(1);
     });
 });
 
