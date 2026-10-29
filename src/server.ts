@@ -34,7 +34,7 @@ import { bountyBoard } from './bounty.ts';
 import { DEFAULT_RULES, type Rules } from './rules.ts';
 import { Guard, normalAddress, webAddress } from './guard.ts';
 import { rankings, whoIsHere, whoIsOnline } from './lists.ts';
-import { lostFight, mail, news, talk, yell } from './talk.ts';
+import { NEWS_TITLE, lostFight, mail, news, newsLines, talk, yell } from './talk.ts';
 import { escapeMarkup } from '@fq2ts/engine/text';
 import { Store, type AwayPlayer } from './store.ts';
 import { Clean, DEFAULT_BAD_WORDS } from './clean.ts';
@@ -72,6 +72,8 @@ export interface ServerOptions<F extends FlagRecord, W extends WorldRecord = Wor
     // Sends the codes that confirm addresses and reset passwords (default:
     // writes them to the log).
     mailer?: Mailer;
+    // Show players the daily news as they come in (default: yes).
+    dailyNews?: boolean;
     // Clean mode: the swear words starred out of what players say and
     // write, and not allowed in names (default: DEFAULT_BAD_WORDS; none
     // turns it off). See clean.ts.
@@ -326,6 +328,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             items: shared.items,
             config: shared.config,
             clean,
+            // The daily news, as each player comes in (LORD II's daily happenings).
+            ...(options.dailyNews === false ? {} : { welcome: () => ({ title: NEWS_TITLE, lines: newsLines(shared.store, now()) }) }),
             // Leaving anywhere but a room at an inn, the player sleeps where
             // they are (if players who leave stay on the map at all).
             leaveWarning: (player) => {

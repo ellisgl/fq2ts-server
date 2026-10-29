@@ -156,15 +156,23 @@ export function mail<F extends FlagRecord, W extends WorldRecord = WorldRecord>(
 // D: the news, today's and yesterday's.
 export function news<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ store, now = Date.now }: Talk<F, W>): Script<F, W> {
     return async (g) => {
-        const today = startOfDay(now());
-        const yesterday = today - 86_400_000;
-        const lines: string[] = [];
-        for (const [label, from, to] of [['Today', today, Infinity], ['Yesterday', yesterday, today]] as const) {
-            const items = store.news(from).filter(({ at }) => at < to);
-            lines.push(`{yellow}${label}`, ...(items.length ? items.map(({ text, at }) => `{gray}${time(at)}  {white}${text}`) : ['{gray}Nothing happened.']), '');
-        }
-        await g.scroll(lines, 'The daily news');
+        await g.scroll(newsLines(store, now()), NEWS_TITLE);
     };
+}
+
+export const NEWS_TITLE = 'The daily news';
+
+// The news, today's and yesterday's, newest first: for D, and for players
+// as they log in (as LORD II's daily happenings).
+export function newsLines(store: Store, at: number): string[] {
+    const today = startOfDay(at);
+    const yesterday = today - 86_400_000;
+    const lines: string[] = [];
+    for (const [label, from, to] of [['Today', today, Infinity], ['Yesterday', yesterday, today]] as const) {
+        const items = store.news(from).filter(({ at: when }) => when < to);
+        lines.push(`{yellow}${label}`, ...(items.length ? items.map(({ text, at: when }) => `{gray}${time(when)}  {white}${text}`) : ['{gray}Nothing happened.']), '');
+    }
+    return lines;
 }
 
 // The news of a fight that was lost: "Ann was beaten by a Tree Frog."

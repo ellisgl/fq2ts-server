@@ -28,6 +28,8 @@ function start(options: Partial<ServerOptions<TestFlags>> = {}): RunningServer {
         dataDir: FIXTURE_DATA,
         database: ':memory:',
         webPort: 0,
+        // (The daily news at login is tested on its own.)
+        dailyNews: false,
         log: (line) => logs.push(line),
         hashPassword: (p) => Promise.resolve(`hash:${p}`),
         verifyPassword: (p, h) => Promise.resolve(h === `hash:${p}`),
@@ -235,6 +237,24 @@ describe('playing', () => {
         await bob.sees('Ow!');
         // (Bob's status line shows the message for now; his save has the wound.)
         expect(new Store(database).loadPlayer(2)).toMatchObject({ hp: 90 });
+    });
+
+    test('the daily news shows as a player comes in', async () => {
+        const server = start({ dailyNews: true });
+        const client = await browser(server.webPort ?? 0);
+        await client.sees('Log');
+        client.send(`${DOWN}\r`);
+        await client.sees('name:');
+        client.send('Hero\rsecret1\rsecret1\r');
+        await client.sees('Email:');
+        client.send('hero@example.com\r');
+        await until('the code to be emailed', () => logs.some((line) => line.startsWith('Email to hero@example.com:')));
+        const code = /your code is (\d+)/.exec(logs.findLast((line) => line.startsWith('Email to hero@example.com:')) ?? '')?.[1] ?? '';
+        client.send(`${code}\r`);
+        await client.sees('The daily news');
+        await client.sees('Today');
+        client.send('\x1b');
+        await client.sees('A NEW GAME BEGINS');
     });
 
     test('a window smaller than 80x25 is turned away', async () => {

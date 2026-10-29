@@ -7,7 +7,7 @@
 // takes the password, then a code sent to the new one.
 
 import { draw, escapeMarkup } from '@fq2ts/engine/text';
-import { askText, choose } from '@fq2ts/engine/ui';
+import { askText, choose, scrollText } from '@fq2ts/engine/ui';
 import { Disconnected, type Terminal } from '@fq2ts/engine/terminal';
 import { restorePlayer, type FlagRecord, type Player } from '@fq2ts/engine/player';
 import type { ItemCatalogue } from '@fq2ts/engine/items';
@@ -46,6 +46,9 @@ export interface SessionOptions<F extends FlagRecord, W extends WorldRecord = Wo
     mayEmail?(to: string): boolean;
     // Turns down new players' names with swear words in them.
     clean?: Clean;
+    // What to show a player as they come in, before the game (the daily
+    // news), with its title; nothing if left out.
+    welcome?(): { title: string; lines: readonly string[] } | null;
     // What to warn a player of as they leave the realm from where they
     // are (they'll sleep there, open to attack), or null for nothing.
     leaveWarning?(player: Player<F>): string | null;
@@ -508,6 +511,11 @@ export class Session<F extends FlagRecord, W extends WorldRecord = WorldRecord> 
                 store.savePlayer(account.id, player);
             });
             this.playing = { account, game };
+
+            const welcome = this.options.welcome?.();
+            if (welcome) {
+                await scrollText(this.options.term, welcome.lines, { title: welcome.title });
+            }
 
             const saved = store.loadPlayer(account.id);
             if (saved === null) {
