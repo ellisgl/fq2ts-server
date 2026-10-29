@@ -157,6 +157,8 @@ export function attack<F extends FlagRecord, W extends WorldRecord = WorldRecord
             }
 
             days.fought(me.id);
+            // (Attacking someone asleep is no good deed.)
+            g.alignment -= 1;
             const { result, taken, lost } = await fight(chosen.accountId, chosen.name, them);
             const letter = result === 'won'
                 ? `I found you sleeping, and beat you. I took $${taken}.`

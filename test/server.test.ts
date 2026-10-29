@@ -220,6 +220,23 @@ describe('playing', () => {
         await ann.sees('"There\'s a price on your head,"');
     });
 
+    test("a game's script can do something to the player next to this one (g.nearby)", async () => {
+        // (Test Quest, with N: wound whoever's next to you.)
+        const database = join(tempDir(), 'game.sqlite');
+        const server = start({ database, content: { ...content, keys: { N: { help: 'wound', run: (g) => g.nearby()[0]?.wound(10, 'Ow!') } } } });
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        const bob = await browser(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        ann.send('n');
+        await bob.sees('Ow!');
+        // (Bob's status line shows the message for now; his save has the wound.)
+        expect(new Store(database).loadPlayer(2)).toMatchObject({ hp: 90 });
+    });
+
     test('a window smaller than 80x25 is turned away', async () => {
         const server = start();
         const client = await browser(server.webPort ?? 0, { size: [70, 20] });

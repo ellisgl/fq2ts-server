@@ -292,6 +292,8 @@ describe('fights with players who are away', () => {
         expect([g.gold, g.exp]).toEqual([50, 10]);
         expect(store.loadPlayer(2)).toMatchObject({ gold: 40, hp: 1, screen: 1, x: 11, y: 10 });
         expect(store.letters(2)).toMatchObject([{ from: 'Ann', text: 'I found you sleeping, and beat you. I took $40.' }]);
+        // (And attacking someone asleep is no good deed.)
+        expect(g.alignment).toBe(-1);
         expect(store.news(0).map(({ text }) => text)).toEqual(['{lightred}Ann beat Bob in a fight.']);
         expect(days.fights(1)).toBe(1);
     });

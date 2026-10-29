@@ -199,6 +199,25 @@ describe('P, S and L', () => {
         expect(term.remaining).toBe(0);
     });
 
+    test("L shows each player's alignment, for a game with it", async () => {
+        const store = new Store(':memory:');
+        store.savePlayer(store.createAccount('Ann', 'h', 'a@example.com')?.id ?? 0, { exp: 50, alignment: -3 });
+        store.savePlayer(store.createAccount('Bob', 'h', 'b@example.com')?.id ?? 0, { exp: 40, alignment: 7 });
+        const { g, term } = scriptContext({
+            steps: [
+                () => {
+                    const text = screenText(term.screen);
+                    expect(text).toMatch(/Name +Experience +Gold +Align/);
+                    expect(text).toMatch(/1 +Ann +50 +0 +-3/);
+                    expect(text).toMatch(/2 +Bob +40 +0 +\+7/);
+                    return 'escape';
+                },
+            ],
+        });
+        await rankings(new Realm<TestFlags>(), store, { alignment: true })(g);
+        expect(term.remaining).toBe(0);
+    });
+
     test("L shows each player's jobs done, for a game with jobs", async () => {
         const store = new Store(':memory:');
         store.savePlayer(store.createAccount('Ann', 'h', 'a@example.com')?.id ?? 0, { exp: 50, gold: 7, flags: { jobsDone: 12 }, title: 'the Brave' });

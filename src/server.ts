@@ -373,7 +373,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
                         S: { help: 'the names of the players on this screen', run: whoIsHere(realm, id) },
                         ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, kickAddress, log }) } } : {}),
-                        L: { help: 'every player, ranked', run: rankings(realm, shared.store, { jobs: 'jobsDone' in shared.content.start.flags }) },
+                        L: { help: 'every player, ranked', run: rankings(realm, shared.store, { jobs: 'jobsDone' in shared.content.start.flags, alignment: shared.content.start.alignment !== undefined }) },
                         Z: {
                             help: 'take a room at an inn: no one can find you while you are away',
                             run: inn({
@@ -394,6 +394,20 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                     news: (text) => {
                         shared.store.addNews(text, Date.now());
                     },
+                    // The players next to this one, for scripts that do
+                    // something to them (a game's curse, say).
+                    nearby: () => realm.near(id).map(({ accountId, name: theirName, game: theirs }) => ({
+                        name: theirName,
+                        hp: theirs.playing.hp,
+                        maxHp: theirs.playing.maxHp,
+                        wound: (amount, why) => {
+                            const them = theirs.playing;
+                            them.hp = Math.max(1, them.hp - Math.max(0, Math.trunc(amount)));
+                            shared.store.savePlayer(accountId, them);
+                            theirs.notify(why);
+                            theirs.refresh();
+                        },
+                    })),
                     // Players with a price on their head are hunted.
                     ambush: (player) => hunters.ambush(id, player),
                     fought: (_player, monster, result) => {

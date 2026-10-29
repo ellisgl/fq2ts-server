@@ -63,16 +63,17 @@ export const RANKINGS_SHOWN = 200;
 
 // L: the players there are (online or not), by experience, from the
 // rankings the store keeps beside the saves (no save is read). With `jobs`
-// (the game has the engine's jobs), how many each has done, too.
-export function rankings<F extends FlagRecord, W extends WorldRecord = WorldRecord>(realm: Realm<F, W>, store: Store, { jobs = false } = {}): Script<F, W> {
+// (the game has the engine's jobs), how many each has done, too; with
+// `alignment` (the game uses it), how good or evil each is.
+export function rankings<F extends FlagRecord, W extends WorldRecord = WorldRecord>(realm: Realm<F, W>, store: Store, { jobs = false, alignment = false } = {}): Script<F, W> {
     return async (g) => {
         const online = new Set(realm.online().map(({ name }) => name.toLowerCase()));
         const { players, total } = store.rankings(RANKINGS_SHOWN);
         const lines = [
-            `{gray}${'#'.padStart(4)}  ${'Name'.padEnd(TITLED_WIDTH)}${'Experience'.padStart(12)}${'Gold'.padStart(10)}${jobs ? 'Jobs'.padStart(8) : ''}`,
-            ...players.map(({ name, title, exp, gold, jobs: done }, i) => {
+            `{gray}${'#'.padStart(4)}  ${'Name'.padEnd(TITLED_WIDTH)}${'Experience'.padStart(12)}${'Gold'.padStart(10)}${jobs ? 'Jobs'.padStart(8) : ''}${alignment ? 'Align'.padStart(7) : ''}`,
+            ...players.map(({ name, title, exp, gold, jobs: done, alignment: align }, i) => {
                 const here = online.has(name.toLowerCase()) ? '{lightgreen}*' : ' ';
-                return `{gray}${String(i + 1).padStart(4)} ${here}{white}${padded(titled(name, title), TITLED_WIDTH)}{yellow}${String(exp).padStart(12)}{gray}${String(gold).padStart(10)}${jobs ? `{lightcyan}${String(done).padStart(8)}` : ''}`;
+                return `{gray}${String(i + 1).padStart(4)} ${here}{white}${padded(titled(name, title), TITLED_WIDTH)}{yellow}${String(exp).padStart(12)}{gray}${String(gold).padStart(10)}${jobs ? `{lightcyan}${String(done).padStart(8)}` : ''}${alignment ? `${align < 0 ? '{lightred}' : '{lightgreen}'}${(align > 0 ? `+${align}` : String(align)).padStart(7)}` : ''}`;
             }),
             ...(total > players.length ? [`{gray}...and ${total - players.length} more`] : []),
             '',

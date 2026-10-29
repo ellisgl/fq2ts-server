@@ -100,9 +100,9 @@ test('rankings: players by experience, most first, from what saving keeps beside
     }
     expect(store.rankings(3)).toEqual({
         players: [
-            { name: 'Bob', title: '', exp: 500, gold: 1000, jobs: 100 },
-            { name: 'Ann', title: '', exp: 50, gold: 100, jobs: 10 },
-            { name: 'cat', title: '', exp: 50, gold: 100, jobs: 0 },
+            { name: 'Bob', title: '', exp: 500, gold: 1000, jobs: 100, alignment: 0 },
+            { name: 'Ann', title: '', exp: 50, gold: 100, jobs: 10, alignment: 0 },
+            { name: 'cat', title: '', exp: 50, gold: 100, jobs: 0, alignment: 0 },
         ],
         total: 4,
     });
@@ -116,7 +116,7 @@ test('a database from before the rankings gets them from the saves', () => {
     db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
     db.run('INSERT INTO players (account_id, state, saved_at) VALUES (1, \'{"exp": 77, "gold": 3}\', \'then\')');
     db.close();
-    expect(new Store(path).rankings(10).players).toEqual([{ name: 'Old', title: '', exp: 77, gold: 3, jobs: 0 }]);
+    expect(new Store(path).rankings(10).players).toEqual([{ name: 'Old', title: '', exp: 77, gold: 3, jobs: 0, alignment: 0 }]);
 });
 
 test('titles are kept beside the saves, for the rankings and players who are away', () => {
@@ -125,6 +125,20 @@ test('titles are kept beside the saves, for the rankings and players who are awa
     store.savePlayer(store.createAccount('Bob', 'h', 'b@example.com')?.id ?? 0, { exp: 1, screen: 1, x: 4, y: 3, title: 7 });
     expect(store.rankings(10).players.map(({ name, title }) => [name, title])).toEqual([['Ann', 'the Brave'], ['Bob', '']]);
     expect(store.awayOn(1, new Date(0)).map(({ name, title }) => [name, title])).toEqual([['Ann', 'the Brave'], ['Bob', '']]);
+});
+
+test('alignment is kept beside the saves, and a database from before it gets it from them', () => {
+    const store = new Store(':memory:');
+    store.savePlayer(store.createAccount('Ann', 'h', 'a@example.com')?.id ?? 0, { exp: 5, alignment: -4 });
+    expect(store.rankings(10).players[0]?.alignment).toBe(-4);
+
+    const path = join(tempDir(), 'before-alignment.sqlite');
+    const db = new Database(path, { create: true });
+    migrate(db, MIGRATIONS.slice(0, 13));
+    db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
+    db.run('INSERT INTO players (account_id, state, saved_at, exp) VALUES (1, \'{"exp": 9, "alignment": 6}\', \'then\', 9)');
+    db.close();
+    expect(new Store(path).rankings(10).players[0]?.alignment).toBe(6);
 });
 
 test('a database from before titles gets them from the saves', () => {

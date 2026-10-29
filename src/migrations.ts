@@ -195,6 +195,16 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: "Players' alignment (good or evil) beside their saves, for the rankings",
+        up: (db) => {
+            db.run(`
+                ALTER TABLE players ADD COLUMN alignment INTEGER NOT NULL DEFAULT 0;
+                UPDATE players SET alignment = COALESCE(CAST(json_extract(state, '$.alignment') AS INTEGER), 0)
+                WHERE json_valid(state);
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

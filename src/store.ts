@@ -406,10 +406,10 @@ export class Store {
         const title: unknown = typeof player === 'object' && player !== null && 'title' in player ? player.title : '';
         const at = now();
         this.db
-            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold, jobs, title, screen, x, y, played_at) VALUES ($id, $state, $now, $exp, $gold, $jobs, $title, $screen, $x, $y, $now)
-                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold, jobs = $jobs, title = $title, screen = $screen, x = $x, y = $y,
+            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold, jobs, title, alignment, screen, x, y, played_at) VALUES ($id, $state, $now, $exp, $gold, $jobs, $title, $alignment, $screen, $x, $y, $now)
+                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold, jobs = $jobs, title = $title, alignment = $alignment, screen = $screen, x = $x, y = $y,
                     played_at = CASE WHEN $played THEN $now ELSE played_at END`)
-            .run({ id: accountId, state: JSON.stringify(player), now: at, exp: whole('exp'), gold: whole('gold'), jobs: whole('jobsDone', flags), title: typeof title === 'string' ? title : '', screen: whole('screen'), x: whole('x'), y: whole('y'), played: played ? 1 : 0 });
+            .run({ id: accountId, state: JSON.stringify(player), now: at, exp: whole('exp'), gold: whole('gold'), jobs: whole('jobsDone', flags), title: typeof title === 'string' ? title : '', alignment: whole('alignment'), screen: whole('screen'), x: whole('x'), y: whole('y'), played: played ? 1 : 0 });
     }
 
     // Whether the player has taken a room at an inn (until they're back).
@@ -433,15 +433,15 @@ export class Store {
 
     // The players with the most experience, most first (then by name), and
     // how many players there are.
-    public rankings(limit: number): { players: { name: string; title: string; exp: number; gold: number; jobs: number }[]; total: number } {
+    public rankings(limit: number): { players: { name: string; title: string; exp: number; gold: number; jobs: number; alignment: number }[]; total: number } {
         const rows: unknown = this.db
-            .query('SELECT a.name, p.title, p.exp, p.gold, p.jobs FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY p.exp DESC, a.name COLLATE NOCASE LIMIT $limit')
+            .query('SELECT a.name, p.title, p.exp, p.gold, p.jobs, p.alignment FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY p.exp DESC, a.name COLLATE NOCASE LIMIT $limit')
             .all({ limit });
         const count: unknown = this.db.query('SELECT COUNT(*) AS n FROM players').get();
         return {
             players: (Array.isArray(rows) ? rows : []).map((row: unknown) => {
                 const r = record(row, 'ranking');
-                return { name: field(r, 'name', 'ranking', string), title: field(r, 'title', 'ranking', string), exp: field(r, 'exp', 'ranking', integer), gold: field(r, 'gold', 'ranking', integer), jobs: field(r, 'jobs', 'ranking', integer) };
+                return { name: field(r, 'name', 'ranking', string), title: field(r, 'title', 'ranking', string), exp: field(r, 'exp', 'ranking', integer), gold: field(r, 'gold', 'ranking', integer), jobs: field(r, 'jobs', 'ranking', integer), alignment: field(r, 'alignment', 'ranking', integer) };
             }),
             total: count === null ? 0 : field(record(count, 'count'), 'n', 'count', integer),
         };
