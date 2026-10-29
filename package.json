@@ -9,7 +9,7 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@fq2ts/engine": "github:ellisgl/fq2ts-engine#v0.13.0",
+    "@fq2ts/engine": "github:ellisgl/fq2ts-engine#v0.13.2",
     "@types/nodemailer": "^8.0.2",
     "@wterm/dom": "0.5.7",
     "nodemailer": "^10.3.1"
