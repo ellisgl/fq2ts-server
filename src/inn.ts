@@ -1,7 +1,9 @@
 // Inns (Z): a player at an inn (a screen marked `"inn": true`) can pay for
 // a room and leave the realm. Until they're back, they're nowhere on the
 // map, and no one can attack them; anyone who leaves anywhere else stays
-// where they were, sleeping in the open (see pvp.ts).
+// where they were, sleeping in the open (see pvp.ts). At home (`"home":
+// true`), there's no need: leaving there, they sleep in their own bed, for
+// nothing (see server.ts).
 
 import type { FlagRecord } from '@fq2ts/engine/player';
 import type { Script } from '@fq2ts/engine/script';
@@ -21,6 +23,11 @@ interface Inn {
 
 export function inn<F extends FlagRecord, W extends WorldRecord = WorldRecord>({ world, cost = INN_COST, sleep }: Inn): Script<F, W> {
     return async (g) => {
+        if (world.isHome(g.screenNumber)) {
+            g.write("{lightgreen}You're home: no need for a room. Leave the realm here, and you'll sleep safely in your own bed.");
+            return;
+        }
+
         if (!world.isInn(g.screenNumber)) {
             g.write("{yellow}There's no inn here. (Sleep at an inn, and no one can find you while you're away.)");
             return;

@@ -412,6 +412,16 @@ export class Store {
             .run({ id: accountId, state: JSON.stringify(player), now: at, exp: whole('exp'), gold: whole('gold'), jobs: whole('jobsDone', flags), title: typeof title === 'string' ? title : '', alignment: whole('alignment'), screen: whole('screen'), x: whole('x'), y: whole('y'), played: played ? 1 : 0 });
     }
 
+    // Where the account's player was last saved (null if they haven't been).
+    public screenOf(accountId: number): number | null {
+        const row: unknown = this.db.query('SELECT screen FROM players WHERE account_id = $id').get({ id: accountId });
+        if (row === null) {
+            return null;
+        }
+        const { screen } = record(row, 'player');
+        return typeof screen === 'number' ? screen : null;
+    }
+
     // Whether the player has taken a room at an inn (until they're back).
     public setAsleep(accountId: number, asleep: boolean): void {
         this.db.query('UPDATE players SET asleep = $asleep WHERE account_id = $id').run({ id: accountId, asleep: asleep ? 1 : 0 });

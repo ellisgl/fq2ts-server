@@ -333,7 +333,8 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             // Leaving anywhere but a room at an inn, the player sleeps where
             // they are (if players who leave stay on the map at all).
             leaveWarning: (player) => {
-                if (rules.awayDays === 0) {
+                // (At home, they sleep safely in their own bed.)
+                if (rules.awayDays === 0 || shared.world.isHome(player.screen)) {
                     return null;
                 }
 
@@ -437,6 +438,13 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             },
             claim: ({ id, name }) => realm.claim(id, name),
             release: (id) => {
+                // Leaving at home (however they leave: the menu, or closing
+                // the page), they sleep safely in their own bed, for nothing.
+                const screen = shared.store.screenOf(id);
+                if (screen !== null && shared.world.isHome(screen)) {
+                    shared.store.setAsleep(id, true);
+                    log(`${realm.nameOf(id) ?? `Account ${id}`} sleeps at home.`);
+                }
                 realm.release(id);
                 gifts.forget(id);
                 playingOn.delete(id);

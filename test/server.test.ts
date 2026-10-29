@@ -257,6 +257,38 @@ describe('playing', () => {
         await client.sees('A NEW GAME BEGINS');
     });
 
+    test('a player who leaves at home sleeps safely in their own bed: by the menu, or by hanging up', async () => {
+        // (Test Quest, with its first screen a home.)
+        const data = tempDir();
+        cpSync(FIXTURE_DATA, data, { recursive: true });
+        const first = join(data, 'maps', '0001.json');
+        writeFileSync(first, JSON.stringify({ ...JSON.parse(readFileSync(first, 'utf8')), home: true }));
+        const server = start({ dataDir: data });
+        const port = server.webPort ?? 0;
+        const ann = await browser(port);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        // (No warning: Leave the realm leaves.)
+        ann.send('\x1b');
+        await ann.sees('Return');
+        ann.send(`${DOWN}${DOWN}\r`);
+        await until('Ann to leave', () => logs.includes('Ann leaves the realm.'));
+        expect(logs).toContain('Ann sleeps at home.');
+
+        const cat = await browser(port);
+        await newPlayer(cat, 'Cat');
+        await cat.sees('HP 100/100');
+        cat.send('\x03');
+        await until('Cat to leave', () => logs.includes('Cat leaves the realm.'));
+        expect(logs).toContain('Cat sleeps at home.');
+
+        const bob = await browser(port);
+        await newPlayer(bob, 'Bob');
+        await bob.sees('HP 100/100');
+        bob.send('s');
+        await bob.sees('No one else is on this screen.');
+    });
+
     test('a window smaller than 80x25 is turned away', async () => {
         const server = start();
         const client = await browser(server.webPort ?? 0, { size: [70, 20] });

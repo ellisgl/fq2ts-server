@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { INN_COST, inn } from '../src/inn.ts';
 import { newPlayer, scriptContext, testWorld, type TestFlags } from '@fq2ts/engine/fixture';
 import { screenText } from '@fq2ts/engine/testing';
@@ -40,6 +40,23 @@ describe('inns (Z)', () => {
         const nowhere = setUp([], 100, 2);
         await nowhere.z(nowhere.g);
         expect(nowhere.slept()).toBe(false);
+    });
+
+    test('at home, there is no need for a room: no charge', async () => {
+        const world = testWorld();
+        world.setHome(1, true);
+        let slept = false;
+        const z = inn<TestFlags>({
+            world,
+            sleep: () => {
+                slept = true;
+            },
+        });
+        const { g } = scriptContext({ player: newPlayer({ gold: 100, screen: 1 }) });
+        const write = spyOn(g, 'write');
+        await z(g);
+        expect([g.gold, slept]).toEqual([100, false]);
+        expect(write).toHaveBeenCalledWith("{lightgreen}You're home: no need for a room. Leave the realm here, and you'll sleep safely in your own bed.");
     });
 
     test('what a room costs is the server\'s to say', async () => {

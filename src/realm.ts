@@ -127,6 +127,10 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         return figures;
     }
 
+    public nameOf(accountId: number): string | null {
+        return this.members.get(accountId)?.name ?? null;
+    }
+
     public gameOf(accountId: number): Game<F, W> | null {
         return this.members.get(accountId)?.game ?? null;
     }
