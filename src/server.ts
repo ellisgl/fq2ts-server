@@ -461,8 +461,11 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
         });
         connection.session = session;
         connection.finished = session.run().then(() => {
+            // (What's left to draw is sent, and the screen stays as it is:
+            // not Terminal.stop, which leaves the alternate screen and
+            // prints the last one again, for a terminal on this computer.)
             if (!connection.isClosed) {
-                term.stop();
+                term.flush();
             }
 
             connection.close();

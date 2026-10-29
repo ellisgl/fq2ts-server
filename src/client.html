@@ -48,25 +48,26 @@
   import { WTerm } from '/wterm.js';
 
   // The game is 80x25 cells; the page sends what's typed and draws what
-  // the server sends.
+  // the server sends. Each connection gets a new terminal, so nothing of
+  // the last one (its screens, scrolled back to) is left.
   let ws = null;
-  const term = new WTerm(document.getElementById('screen'), {
-    cols: 80,
-    rows: 25,
-    autoResize: false,
-    cursorBlink: true,
-    onData: (data) => {
-      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
-    },
-  });
-  await term.init();
-
+  let term = null;
+  const screen = document.getElementById('screen');
   const status = document.getElementById('status');
   const again = document.getElementById('again');
 
-  function connect() {
-    // (ESC c resets the terminal.)
-    term.write('\x1bc');
+  async function connect() {
+    term?.destroy();
+    term = new WTerm(screen, {
+      cols: 80,
+      rows: 25,
+      autoResize: false,
+      cursorBlink: true,
+      onData: (data) => {
+        if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+      },
+    });
+    await term.init();
     again.hidden = true;
     status.textContent = 'Connecting...';
     ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
