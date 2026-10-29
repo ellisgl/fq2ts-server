@@ -9,14 +9,26 @@ import type { Realm } from './realm.ts';
 import type { Store } from './store.ts';
 import type { WorldRecord } from '@fq2ts/engine/shared';
 
-const NAME_WIDTH = 22;
+// How wide names are shown, with a title after them.
+const TITLED_WIDTH = 34;
+
+// A name, and the title after it, if any: as markup, and how wide it is.
+function titled(name: string, title: string): { markup: string; width: number } {
+    return {
+        markup: `${escapeMarkup(name)}${title ? ` {lightmagenta}${escapeMarkup(title)}` : ''}`,
+        width: name.length + (title ? title.length + 1 : 0),
+    };
+}
+
+// `text` (markup `width` wide), and spaces after it to `to` (at least one).
+const padded = ({ markup, width }: { markup: string; width: number }, to: number): string => markup + ' '.repeat(Math.max(1, to - width));
 
 // P: who's in the realm, and where.
 export function whoIsOnline<F extends FlagRecord, W extends WorldRecord = WorldRecord>(realm: Realm<F, W>, world: World, accountId: number): Script<F, W> {
     return async (g) => {
-        const lines = realm.online().map(({ accountId: id, name, place }) => {
+        const lines = realm.online().map(({ accountId: id, name, title, place }) => {
             const where = place ? world.name(place.screen) || `screen ${place.screen}` : 'arriving';
-            return `{white}${escapeMarkup(name).padEnd(NAME_WIDTH)}{gray}${escapeMarkup(where)}${id === accountId ? ' {yellow}(you)' : ''}`;
+            return `{white}${padded(titled(name, title), TITLED_WIDTH)}{gray}${escapeMarkup(where)}${id === accountId ? ' {yellow}(you)' : ''}`;
         });
         await g.scroll(lines, `Who's in the realm (${lines.length})`);
     };
@@ -35,8 +47,8 @@ export function whoIsHere<F extends FlagRecord, W extends WorldRecord = WorldRec
             return;
         }
 
-        const shown = here.map(({ name, away }) => `{lightcyan}${escapeMarkup(name)}${away ? ' {gray}(sleeping)' : ''}`);
-        const line = `Here: ${here.map(({ name, away }) => `${name}${away ? ' (sleeping)' : ''}`).join(', ')}`;
+        const shown = here.map(({ name, title, away }) => `{lightcyan}${titled(name, title).markup}${away ? ' {gray}(sleeping)' : ''}`);
+        const line = `Here: ${here.map(({ name, title, away }) => `${name}${title ? ` ${title}` : ''}${away ? ' (sleeping)' : ''}`).join(', ')}`;
         if (line.length <= STATUS_WIDTH) {
             g.write(`{white}Here: ${shown.join('{white}, ')}`);
             return;
@@ -57,10 +69,10 @@ export function rankings<F extends FlagRecord, W extends WorldRecord = WorldReco
         const online = new Set(realm.online().map(({ name }) => name.toLowerCase()));
         const { players, total } = store.rankings(RANKINGS_SHOWN);
         const lines = [
-            `{gray}${'#'.padStart(4)}  ${'Name'.padEnd(NAME_WIDTH)}${'Experience'.padStart(12)}${'Gold'.padStart(10)}${jobs ? 'Jobs'.padStart(8) : ''}`,
-            ...players.map(({ name, exp, gold, jobs: done }, i) => {
+            `{gray}${'#'.padStart(4)}  ${'Name'.padEnd(TITLED_WIDTH)}${'Experience'.padStart(12)}${'Gold'.padStart(10)}${jobs ? 'Jobs'.padStart(8) : ''}`,
+            ...players.map(({ name, title, exp, gold, jobs: done }, i) => {
                 const here = online.has(name.toLowerCase()) ? '{lightgreen}*' : ' ';
-                return `{gray}${String(i + 1).padStart(4)} ${here}{white}${escapeMarkup(name).padEnd(NAME_WIDTH)}{yellow}${String(exp).padStart(12)}{gray}${String(gold).padStart(10)}${jobs ? `{lightcyan}${String(done).padStart(8)}` : ''}`;
+                return `{gray}${String(i + 1).padStart(4)} ${here}{white}${padded(titled(name, title), TITLED_WIDTH)}{yellow}${String(exp).padStart(12)}{gray}${String(gold).padStart(10)}${jobs ? `{lightcyan}${String(done).padStart(8)}` : ''}`;
             }),
             ...(total > players.length ? [`{gray}...and ${total - players.length} more`] : []),
             '',

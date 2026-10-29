@@ -32,6 +32,11 @@ export interface Member<F extends FlagRecord, W extends WorldRecord = WorldRecor
     place: Place | null;
 }
 
+// A player's title, as their game has it now ("" for none).
+function titleOf<F extends FlagRecord, W extends WorldRecord>(game: Game<F, W> | null): string {
+    return game?.inProgress ? (game.playing.title ?? '') : '';
+}
+
 // How other players look on the map, and those who are away.
 export const OTHER_PLAYER = { ch: '☻', fg: 11 } as const;
 export const AWAY_PLAYER = { ch: '☻', fg: 7 } as const;
@@ -143,8 +148,9 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         return near.sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    // The others on a member's screen, by name, and whether they're away.
-    public onScreen(accountId: number): { name: string; away: boolean }[] {
+    // The others on a member's screen, by name, with their titles, and
+    // whether they're away.
+    public onScreen(accountId: number): { name: string; title: string; away: boolean }[] {
         const screen = this.members.get(accountId)?.place?.screen;
         if (screen === undefined) {
             return [];
@@ -153,8 +159,8 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         return [
             ...[...this.members]
                 .filter(([id, { game, place }]) => id !== accountId && game !== null && place?.screen === screen)
-                .map(([, { name }]) => ({ name, away: false })),
-            ...this.awayOn(screen).map(({ name }) => ({ name, away: true })),
+                .map(([, { name, game }]) => ({ name, title: titleOf(game), away: false })),
+            ...this.awayOn(screen).map(({ name, title }) => ({ name, title, away: true })),
         ].sort((a, b) => a.name.localeCompare(b.name));
     }
 
@@ -168,11 +174,12 @@ export class Realm<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
         return this.awayOn(mine.screen).filter(({ x, y }) => Math.abs(x - mine.x) <= 1 && Math.abs(y - mine.y) <= 1);
     }
 
-    // Everyone playing, by name, with where they are (if they've a place yet).
-    public online(): { accountId: number; name: string; place: Place | null }[] {
+    // Everyone playing, by name, with their titles and where they are (if
+    // they've a place yet).
+    public online(): { accountId: number; name: string; title: string; place: Place | null }[] {
         return [...this.members]
             .filter(([, { game }]) => game !== null)
-            .map(([accountId, { name, place }]) => ({ accountId, name, place }))
+            .map(([accountId, { name, game, place }]) => ({ accountId, name, title: titleOf(game), place }))
             .sort((a, b) => a.name.localeCompare(b.name));
     }
 

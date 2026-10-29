@@ -397,12 +397,13 @@ export class Store {
             return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
         };
         const flags: unknown = typeof player === 'object' && player !== null && 'flags' in player ? player.flags : null;
+        const title: unknown = typeof player === 'object' && player !== null && 'title' in player ? player.title : '';
         const at = now();
         this.db
-            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold, jobs, screen, x, y, played_at) VALUES ($id, $state, $now, $exp, $gold, $jobs, $screen, $x, $y, $now)
-                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold, jobs = $jobs, screen = $screen, x = $x, y = $y,
+            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold, jobs, title, screen, x, y, played_at) VALUES ($id, $state, $now, $exp, $gold, $jobs, $title, $screen, $x, $y, $now)
+                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold, jobs = $jobs, title = $title, screen = $screen, x = $x, y = $y,
                     played_at = CASE WHEN $played THEN $now ELSE played_at END`)
-            .run({ id: accountId, state: JSON.stringify(player), now: at, exp: whole('exp'), gold: whole('gold'), jobs: whole('jobsDone', flags), screen: whole('screen'), x: whole('x'), y: whole('y'), played: played ? 1 : 0 });
+            .run({ id: accountId, state: JSON.stringify(player), now: at, exp: whole('exp'), gold: whole('gold'), jobs: whole('jobsDone', flags), title: typeof title === 'string' ? title : '', screen: whole('screen'), x: whole('x'), y: whole('y'), played: played ? 1 : 0 });
     }
 
     // Whether the player has taken a room at an inn (until they're back).
@@ -415,26 +416,26 @@ export class Store {
     // them too: leaving them out is for the caller, who knows who that is.
     public awayOn(screen: number, since: Date): AwayPlayer[] {
         const rows: unknown = this.db
-            .query(`SELECT a.id, a.name, p.x, p.y FROM players p JOIN accounts a ON a.id = p.account_id
+            .query(`SELECT a.id, a.name, p.title, p.x, p.y FROM players p JOIN accounts a ON a.id = p.account_id
                 WHERE p.screen = $screen AND p.asleep = 0 AND p.played_at >= $since ORDER BY a.name COLLATE NOCASE`)
             .all({ screen, since: since.toISOString() });
         return (Array.isArray(rows) ? rows : []).map((row: unknown) => {
             const r = record(row, 'player');
-            return { accountId: field(r, 'id', 'player', integer), name: field(r, 'name', 'player', string), x: field(r, 'x', 'player', integer), y: field(r, 'y', 'player', integer) };
+            return { accountId: field(r, 'id', 'player', integer), name: field(r, 'name', 'player', string), title: field(r, 'title', 'player', string), x: field(r, 'x', 'player', integer), y: field(r, 'y', 'player', integer) };
         });
     }
 
     // The players with the most experience, most first (then by name), and
     // how many players there are.
-    public rankings(limit: number): { players: { name: string; exp: number; gold: number; jobs: number }[]; total: number } {
+    public rankings(limit: number): { players: { name: string; title: string; exp: number; gold: number; jobs: number }[]; total: number } {
         const rows: unknown = this.db
-            .query('SELECT a.name, p.exp, p.gold, p.jobs FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY p.exp DESC, a.name COLLATE NOCASE LIMIT $limit')
+            .query('SELECT a.name, p.title, p.exp, p.gold, p.jobs FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY p.exp DESC, a.name COLLATE NOCASE LIMIT $limit')
             .all({ limit });
         const count: unknown = this.db.query('SELECT COUNT(*) AS n FROM players').get();
         return {
             players: (Array.isArray(rows) ? rows : []).map((row: unknown) => {
                 const r = record(row, 'ranking');
-                return { name: field(r, 'name', 'ranking', string), exp: field(r, 'exp', 'ranking', integer), gold: field(r, 'gold', 'ranking', integer), jobs: field(r, 'jobs', 'ranking', integer) };
+                return { name: field(r, 'name', 'ranking', string), title: field(r, 'title', 'ranking', string), exp: field(r, 'exp', 'ranking', integer), gold: field(r, 'gold', 'ranking', integer), jobs: field(r, 'jobs', 'ranking', integer) };
             }),
             total: count === null ? 0 : field(record(count, 'count'), 'n', 'count', integer),
         };
@@ -445,6 +446,8 @@ export class Store {
 export interface AwayPlayer {
     accountId: number;
     name: string;
+    // ("" for none.)
+    title: string;
     x: number;
     y: number;
 }

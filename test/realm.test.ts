@@ -74,7 +74,7 @@ describe('Realm', () => {
         // (Dan is away at 11,10 and 30,10; Bob is listed as away too, but is
         // playing, so is drawn where he is.)
         const realm = new Realm<TestFlags>({
-            away: (screen) => (screen === 1 ? [{ accountId: 4, name: 'Dan', x: 11, y: 10 }, { accountId: 5, name: 'Eve', x: 30, y: 10 }, { accountId: 2, name: 'Bob', x: 1, y: 1 }] : []),
+            away: (screen) => (screen === 1 ? [{ accountId: 4, name: 'Dan', title: '', x: 11, y: 10 }, { accountId: 5, name: 'Eve', title: '', x: 30, y: 10 }, { accountId: 2, name: 'Bob', title: '', x: 1, y: 1 }] : []),
         });
         member(realm, 1, 'Ann');
         member(realm, 2, 'Bob');
@@ -86,15 +86,15 @@ describe('Realm', () => {
         expect(realm.nearAway(9)).toEqual([]);
     });
 
-    test('online lists who is playing, by name, with where they are', () => {
+    test('online lists who is playing, by name, with their titles and where they are', () => {
         const realm = new Realm<TestFlags>();
-        member(realm, 2, 'Zed');
+        member(realm, 2, 'Zed').game.playing.title = 'the Bold';
         member(realm, 1, 'Ann');
         realm.claim(3, 'Logging In');
         realm.moved(2, { screen: 82, x: 5, y: 5 });
         expect(realm.online()).toEqual([
-            { accountId: 1, name: 'Ann', place: null },
-            { accountId: 2, name: 'Zed', place: { screen: 82, x: 5, y: 5 } },
+            { accountId: 1, name: 'Ann', title: '', place: null },
+            { accountId: 2, name: 'Zed', title: 'the Bold', place: { screen: 82, x: 5, y: 5 } },
         ]);
         expect(realm.size).toBe(3);
     });
@@ -104,7 +104,7 @@ describe('P, S and L', () => {
     test("P lists who's in the realm and where, marking the player", async () => {
         const realm = new Realm<TestFlags>();
         member(realm, 1, 'Ann');
-        member(realm, 2, 'Bob');
+        member(realm, 2, 'Bob').game.playing.title = 'the Brave';
         realm.moved(1, { screen: 1, x: 10, y: 10 });
         const world = testWorld();
         world.setName(1, 'Frog Pond');
@@ -114,7 +114,7 @@ describe('P, S and L', () => {
                     const text = screenText(term.screen);
                     expect(text).toContain("Who's in the realm (2)");
                     expect(text).toMatch(/Ann +Frog Pond \(you\)/);
-                    expect(text).toMatch(/Bob +arriving/);
+                    expect(text).toMatch(/Bob the Brave +arriving/);
                     return 'escape';
                 },
             ],
@@ -125,7 +125,7 @@ describe('P, S and L', () => {
 
     test('S names the others on this screen, those who are away too, in the status bar', async () => {
         // (Dozy is away on screen 1; Cat is listed there too, but is playing.)
-        const realm = new Realm<TestFlags>({ away: (screen) => (screen === 1 ? [{ accountId: 9, name: 'Dozy', x: 3, y: 3 }, { accountId: 2, name: 'Cat', x: 1, y: 1 }] : []) });
+        const realm = new Realm<TestFlags>({ away: (screen) => (screen === 1 ? [{ accountId: 9, name: 'Dozy', title: 'the Brave', x: 3, y: 3 }, { accountId: 2, name: 'Cat', title: '', x: 1, y: 1 }] : []) });
         member(realm, 1, 'Ann');
         member(realm, 2, 'Cat');
         member(realm, 3, '{Bob}');
@@ -134,13 +134,13 @@ describe('P, S and L', () => {
         for (const [id, screen] of [[1, 1], [2, 1], [3, 1], [4, 2]] as const) {
             realm.moved(id, { screen, x: 10, y: 10 });
         }
-        expect(realm.onScreen(1)).toEqual([{ name: '{Bob}', away: false }, { name: 'Cat', away: false }, { name: 'Dozy', away: true }]);
+        expect(realm.onScreen(1)).toEqual([{ name: '{Bob}', title: '', away: false }, { name: 'Cat', title: '', away: false }, { name: 'Dozy', title: 'the Brave', away: true }]);
         expect(realm.onScreen(5)).toEqual([]);
 
         const { g } = scriptContext({ steps: [] });
         const write = spyOn(g, 'write');
         await whoIsHere(realm, 1)(g);
-        expect(write).toHaveBeenCalledWith('{white}Here: {lightcyan}{{Bob}{white}, {lightcyan}Cat{white}, {lightcyan}Dozy {gray}(sleeping)');
+        expect(write).toHaveBeenCalledWith('{white}Here: {lightcyan}{{Bob}{white}, {lightcyan}Cat{white}, {lightcyan}Dozy {lightmagenta}the Brave {gray}(sleeping)');
         await whoIsHere(realm, 4)(g);
         expect(write).toHaveBeenLastCalledWith('{gray}No one else is on this screen.');
     });
@@ -201,14 +201,14 @@ describe('P, S and L', () => {
 
     test("L shows each player's jobs done, for a game with jobs", async () => {
         const store = new Store(':memory:');
-        store.savePlayer(store.createAccount('Ann', 'h', 'a@example.com')?.id ?? 0, { exp: 50, gold: 7, flags: { jobsDone: 12 } });
+        store.savePlayer(store.createAccount('Ann', 'h', 'a@example.com')?.id ?? 0, { exp: 50, gold: 7, flags: { jobsDone: 12 }, title: 'the Brave' });
         const realm = new Realm<TestFlags>();
         const { g, term } = scriptContext({
             steps: [
                 () => {
                     const text = screenText(term.screen);
                     expect(text).toMatch(/Name +Experience +Gold +Jobs/);
-                    expect(text).toMatch(/1 +Ann +50 +7 +12/);
+                    expect(text).toMatch(/1 +Ann the Brave +50 +7 +12/);
                     return 'escape';
                 },
             ],

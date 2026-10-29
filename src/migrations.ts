@@ -185,6 +185,16 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: "Players' titles beside their saves, for the lists of players",
+        up: (db) => {
+            db.run(`
+                ALTER TABLE players ADD COLUMN title TEXT NOT NULL DEFAULT '';
+                UPDATE players SET title = COALESCE(json_extract(state, '$.title'), '')
+                WHERE json_valid(state) AND json_type(state, '$.title') = 'text';
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

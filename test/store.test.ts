@@ -100,9 +100,9 @@ test('rankings: players by experience, most first, from what saving keeps beside
     }
     expect(store.rankings(3)).toEqual({
         players: [
-            { name: 'Bob', exp: 500, gold: 1000, jobs: 100 },
-            { name: 'Ann', exp: 50, gold: 100, jobs: 10 },
-            { name: 'cat', exp: 50, gold: 100, jobs: 0 },
+            { name: 'Bob', title: '', exp: 500, gold: 1000, jobs: 100 },
+            { name: 'Ann', title: '', exp: 50, gold: 100, jobs: 10 },
+            { name: 'cat', title: '', exp: 50, gold: 100, jobs: 0 },
         ],
         total: 4,
     });
@@ -116,7 +116,25 @@ test('a database from before the rankings gets them from the saves', () => {
     db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
     db.run('INSERT INTO players (account_id, state, saved_at) VALUES (1, \'{"exp": 77, "gold": 3}\', \'then\')');
     db.close();
-    expect(new Store(path).rankings(10).players).toEqual([{ name: 'Old', exp: 77, gold: 3, jobs: 0 }]);
+    expect(new Store(path).rankings(10).players).toEqual([{ name: 'Old', title: '', exp: 77, gold: 3, jobs: 0 }]);
+});
+
+test('titles are kept beside the saves, for the rankings and players who are away', () => {
+    const store = new Store(':memory:');
+    store.savePlayer(store.createAccount('Ann', 'h', 'a@example.com')?.id ?? 0, { exp: 5, screen: 1, x: 2, y: 3, title: 'the Brave' });
+    store.savePlayer(store.createAccount('Bob', 'h', 'b@example.com')?.id ?? 0, { exp: 1, screen: 1, x: 4, y: 3, title: 7 });
+    expect(store.rankings(10).players.map(({ name, title }) => [name, title])).toEqual([['Ann', 'the Brave'], ['Bob', '']]);
+    expect(store.awayOn(1, new Date(0)).map(({ name, title }) => [name, title])).toEqual([['Ann', 'the Brave'], ['Bob', '']]);
+});
+
+test('a database from before titles gets them from the saves', () => {
+    const path = join(tempDir(), 'before-titles.sqlite');
+    const db = new Database(path, { create: true });
+    migrate(db, MIGRATIONS.slice(0, 12));
+    db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then'), ('Older', 'h', 'then')");
+    db.run('INSERT INTO players (account_id, state, saved_at, exp) VALUES (1, \'{"exp": 9, "title": "the Old"}\', \'then\', 9), (2, \'{"exp": 1, "title": 3}\', \'then\', 1)');
+    db.close();
+    expect(new Store(path).rankings(10).players.map(({ name, title }) => [name, title])).toEqual([['Old', 'the Old'], ['Older', '']]);
 });
 
 test('a database from before jobs were ranked gets them from the saves', () => {
@@ -147,8 +165,8 @@ describe('players who are away', () => {
     test('where each player was is kept beside their save, for awayOn', () => {
         const store = saved();
         expect(store.awayOn(1, new Date(0))).toEqual([
-            { accountId: 1, name: 'Ann', x: 5, y: 7 },
-            { accountId: 2, name: 'Bob', x: 9, y: 7 },
+            { accountId: 1, name: 'Ann', title: '', x: 5, y: 7 },
+            { accountId: 2, name: 'Bob', title: '', x: 9, y: 7 },
         ]);
         expect(store.awayOn(3, new Date(0))).toEqual([]);
     });
@@ -181,7 +199,7 @@ test('a database from before players were kept on the map gets where they were f
     db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
     db.run(`INSERT INTO players (account_id, state, saved_at) VALUES (1, '{"screen": 4, "x": 6, "y": 8}', '${new Date().toISOString()}')`);
     db.close();
-    expect(new Store(path).awayOn(4, new Date(0))).toEqual([{ accountId: 1, name: 'Old', x: 6, y: 8 }]);
+    expect(new Store(path).awayOn(4, new Date(0))).toEqual([{ accountId: 1, name: 'Old', title: '', x: 6, y: 8 }]);
 });
 
 describe('one address, one account', () => {
