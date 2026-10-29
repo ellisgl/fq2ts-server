@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import type { Content } from '@fq2ts/engine/game';
 import type { FlagRecord } from '@fq2ts/engine/player';
-import { loadMods, type LoadedMod } from '@fq2ts/engine/mods';
+import { loadMods, readModList, type LoadedMod } from '@fq2ts/engine/mods';
 import { startServer, type RunningServer } from './server.ts';
 import { DEFAULT_RULES, RULE_OPTIONS, type Rules } from './rules.ts';
 import { smtpMailer, type Mailer } from './mail.ts';
@@ -48,8 +48,10 @@ ${prefix}WEB_PORT, and so on. Options given here win.
   --web-port N          web port (default: 8080); players open http://host:N/
   --no-web              don't accept web browsers
   --data DIR            where the database goes (default: server-data)
-  --mods DIR            the mods to add to the game, a folder each
-                        (default: mods, if there is one)
+  --mods DIR            the folder the mods are in, a folder each
+                        (default: mods)
+  --enable-mods LIST    the mods to add to the game: their folders' names,
+                        with commas between (default: none)
   --max-players N       connections at once (default: 50)
   --idle-minutes N      disconnect players idle this long (default: 30)
   --bad-words FILE      the swear words to star out of what players say and
@@ -80,6 +82,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
             'no-web': { type: 'boolean' },
             'data': { type: 'string' },
             'mods': { type: 'string' },
+            'enable-mods': { type: 'string' },
             'max-players': { type: 'string' },
             'idle-minutes': { type: 'string' },
             'bad-words': { type: 'string' },
@@ -181,7 +184,7 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
     const mail = mailer();
     let mods: LoadedMod[] = [];
     try {
-        mods = await loadMods(resolve(setting('mods', 'mods')));
+        mods = await loadMods(resolve(setting('mods', 'mods')), readModList(setting('enable-mods'), both('enable-mods')));
     } catch (error) {
         fail(`A mod couldn't be loaded: ${error instanceof Error ? error.message : String(error)}`);
     }
