@@ -95,13 +95,14 @@ test('accounts never finished (no confirmed email, never played) are removed aft
 test('rankings: players by experience, most first, from what saving keeps beside the save', () => {
     const store = new Store(':memory:');
     for (const [name, exp] of [['Ann', 50], ['Bob', 500], ['cat', 50], ['Dan', 5]] as const) {
-        store.savePlayer(store.createAccount(name, 'h', `${name}@example.com`)?.id ?? 0, { exp, gold: exp * 2 });
+        // (Jobs done from the engine's job flags; none without them.)
+        store.savePlayer(store.createAccount(name, 'h', `${name}@example.com`)?.id ?? 0, { exp, gold: exp * 2, ...(name === 'cat' ? {} : { flags: { jobsDone: exp / 5 } }) });
     }
     expect(store.rankings(3)).toEqual({
         players: [
-            { name: 'Bob', exp: 500, gold: 1000 },
-            { name: 'Ann', exp: 50, gold: 100 },
-            { name: 'cat', exp: 50, gold: 100 },
+            { name: 'Bob', exp: 500, gold: 1000, jobs: 100 },
+            { name: 'Ann', exp: 50, gold: 100, jobs: 10 },
+            { name: 'cat', exp: 50, gold: 100, jobs: 0 },
         ],
         total: 4,
     });
@@ -115,7 +116,18 @@ test('a database from before the rankings gets them from the saves', () => {
     db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then')");
     db.run('INSERT INTO players (account_id, state, saved_at) VALUES (1, \'{"exp": 77, "gold": 3}\', \'then\')');
     db.close();
-    expect(new Store(path).rankings(10).players).toEqual([{ name: 'Old', exp: 77, gold: 3 }]);
+    expect(new Store(path).rankings(10).players).toEqual([{ name: 'Old', exp: 77, gold: 3, jobs: 0 }]);
+});
+
+test('a database from before jobs were ranked gets them from the saves', () => {
+    const path = join(tempDir(), 'before-jobs.sqlite');
+    const db = new Database(path, { create: true });
+    // (Steps 1 to 11 of the layout, then saves written as they were.)
+    migrate(db, MIGRATIONS.slice(0, 11));
+    db.run("INSERT INTO accounts (name, password_hash, created_at) VALUES ('Old', 'h', 'then'), ('Older', 'h', 'then')");
+    db.run('INSERT INTO players (account_id, state, saved_at, exp) VALUES (1, \'{"exp": 9, "flags": {"jobsDone": 4}}\', \'then\', 9), (2, \'{"exp": 1}\', \'then\', 1)');
+    db.close();
+    expect(new Store(path).rankings(10).players.map(({ name, jobs }) => [name, jobs])).toEqual([['Old', 4], ['Older', 0]]);
 });
 
 describe('players who are away', () => {

@@ -175,6 +175,16 @@ export const MIGRATIONS: readonly Migration[] = [
             `);
         },
     },
+    {
+        description: "Players' jobs done beside their saves, for the rankings",
+        up: (db) => {
+            db.run(`
+                ALTER TABLE players ADD COLUMN jobs INTEGER NOT NULL DEFAULT 0;
+                UPDATE players SET jobs = COALESCE(CAST(json_extract(state, '$.flags.jobsDone') AS INTEGER), 0)
+                WHERE json_valid(state);
+            `);
+        },
+    },
 ];
 
 const version = (db: Database): number => {

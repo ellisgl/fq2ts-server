@@ -387,20 +387,22 @@ export class Store {
     }
 
 
-    // (Its experience and gold are kept beside it too, for the rankings, and
+    // (Its experience, gold and jobs done are kept beside it too, for the
+    // rankings (jobs done from the engine's job flags, if the game has them), and
     // where it is, for others to find it while its player is away.) A save
     // made while they're away (someone attacked them) isn't them playing.
     public savePlayer(accountId: number, player: unknown, { played = true } = {}): void {
-        const whole = (key: string): number => {
-            const value: unknown = typeof player === 'object' && player !== null && key in player ? Reflect.get(player, key) : 0;
+        const whole = (key: string, from: unknown = player): number => {
+            const value: unknown = typeof from === 'object' && from !== null && key in from ? Reflect.get(from, key) : 0;
             return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
         };
+        const flags: unknown = typeof player === 'object' && player !== null && 'flags' in player ? player.flags : null;
         const at = now();
         this.db
-            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold, screen, x, y, played_at) VALUES ($id, $state, $now, $exp, $gold, $screen, $x, $y, $now)
-                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold, screen = $screen, x = $x, y = $y,
+            .query(`INSERT INTO players (account_id, state, saved_at, exp, gold, jobs, screen, x, y, played_at) VALUES ($id, $state, $now, $exp, $gold, $jobs, $screen, $x, $y, $now)
+                ON CONFLICT(account_id) DO UPDATE SET state = $state, saved_at = $now, exp = $exp, gold = $gold, jobs = $jobs, screen = $screen, x = $x, y = $y,
                     played_at = CASE WHEN $played THEN $now ELSE played_at END`)
-            .run({ id: accountId, state: JSON.stringify(player), now: at, exp: whole('exp'), gold: whole('gold'), screen: whole('screen'), x: whole('x'), y: whole('y'), played: played ? 1 : 0 });
+            .run({ id: accountId, state: JSON.stringify(player), now: at, exp: whole('exp'), gold: whole('gold'), jobs: whole('jobsDone', flags), screen: whole('screen'), x: whole('x'), y: whole('y'), played: played ? 1 : 0 });
     }
 
     // Whether the player has taken a room at an inn (until they're back).
@@ -424,15 +426,15 @@ export class Store {
 
     // The players with the most experience, most first (then by name), and
     // how many players there are.
-    public rankings(limit: number): { players: { name: string; exp: number; gold: number }[]; total: number } {
+    public rankings(limit: number): { players: { name: string; exp: number; gold: number; jobs: number }[]; total: number } {
         const rows: unknown = this.db
-            .query('SELECT a.name, p.exp, p.gold FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY p.exp DESC, a.name COLLATE NOCASE LIMIT $limit')
+            .query('SELECT a.name, p.exp, p.gold, p.jobs FROM players p JOIN accounts a ON a.id = p.account_id ORDER BY p.exp DESC, a.name COLLATE NOCASE LIMIT $limit')
             .all({ limit });
         const count: unknown = this.db.query('SELECT COUNT(*) AS n FROM players').get();
         return {
             players: (Array.isArray(rows) ? rows : []).map((row: unknown) => {
                 const r = record(row, 'ranking');
-                return { name: field(r, 'name', 'ranking', string), exp: field(r, 'exp', 'ranking', integer), gold: field(r, 'gold', 'ranking', integer) };
+                return { name: field(r, 'name', 'ranking', string), exp: field(r, 'exp', 'ranking', integer), gold: field(r, 'gold', 'ranking', integer), jobs: field(r, 'jobs', 'ranking', integer) };
             }),
             total: count === null ? 0 : field(record(count, 'count'), 'n', 'count', integer),
         };

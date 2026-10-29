@@ -198,4 +198,22 @@ describe('P, S and L', () => {
         await rankings(realm, store)(g);
         expect(term.remaining).toBe(0);
     });
+
+    test("L shows each player's jobs done, for a game with jobs", async () => {
+        const store = new Store(':memory:');
+        store.savePlayer(store.createAccount('Ann', 'h', 'a@example.com')?.id ?? 0, { exp: 50, gold: 7, flags: { jobsDone: 12 } });
+        const realm = new Realm<TestFlags>();
+        const { g, term } = scriptContext({
+            steps: [
+                () => {
+                    const text = screenText(term.screen);
+                    expect(text).toMatch(/Name +Experience +Gold +Jobs/);
+                    expect(text).toMatch(/1 +Ann +50 +7 +12/);
+                    return 'escape';
+                },
+            ],
+        });
+        await rankings(realm, store, { jobs: true })(g);
+        expect(term.remaining).toBe(0);
+    });
 });

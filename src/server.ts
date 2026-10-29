@@ -371,7 +371,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         P: { help: "who's in the realm", run: whoIsOnline(realm, shared.world, id) },
                         S: { help: 'the names of the players on this screen', run: whoIsHere(realm, id) },
                         ...(admin ? { '!': { help: 'the admin menu: kick, ban, tell everyone', run: adminMenu({ realm, store: shared.store, me, kick, kickAddress, log }) } } : {}),
-                        L: { help: 'every player, ranked', run: rankings(realm, shared.store) },
+                        L: { help: 'every player, ranked', run: rankings(realm, shared.store, { jobs: 'jobsDone' in shared.content.start.flags }) },
                         Z: {
                             help: 'take a room at an inn: no one can find you while you are away',
                             run: inn({
