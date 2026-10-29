@@ -20,8 +20,9 @@
     "check": "tsc && eslint . && bun test"
   },
   "devDependencies": {
-    "@stylistic/eslint-plugin": "^2.9.0",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/bun": "^1.4.4",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^10.13.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.0"
