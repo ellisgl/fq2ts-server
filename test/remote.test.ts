@@ -23,6 +23,11 @@ test('the size starts at 80x25 and follows resizes', () => {
     expect(resized).toBe(1);
 });
 
+test("the size starts at the game's, if it isn't 80x25", () => {
+    const io = new RemoteIO(() => undefined, { width: 120, height: 37 });
+    expect([io.output.columns, io.output.rows]).toEqual([120, 37]);
+});
+
 test('a window too small is refused when the terminal starts', () => {
     const io = new RemoteIO(() => undefined);
     io.resized(70, 20);

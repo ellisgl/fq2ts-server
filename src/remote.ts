@@ -4,16 +4,18 @@
 
 import { EventEmitter } from 'node:events';
 import type { TerminalInput, TerminalOutput } from '@fq2ts/engine/terminal';
-import { HEIGHT, WIDTH } from '@fq2ts/engine/screen';
+import { DEFAULT_SIZE, type ScreenSize } from '@fq2ts/engine/screen';
 
 export class RemoteIO {
     public readonly input: TerminalInput;
     public readonly output: TerminalOutput;
     private readonly events = new EventEmitter();
-    private size = { columns: WIDTH, rows: HEIGHT };
+    private size: { columns: number; rows: number };
 
-    // `send` carries the game's output to the player.
-    public constructor(send: (text: string) => void) {
+    // `send` carries the game's output to the player. Until the player says
+    // how big their window is, it's taken to be the game's `screen`.
+    public constructor(send: (text: string) => void, screen: ScreenSize = DEFAULT_SIZE) {
+        this.size = { columns: screen.width, rows: screen.height };
         const { events } = this;
         const size = (): { columns: number; rows: number } => this.size;
         this.input = {

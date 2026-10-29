@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Server, ServerWebSocket } from 'bun';
 import { Terminal } from '@fq2ts/engine/terminal';
-import type { ColorDepth } from '@fq2ts/engine/screen';
+import type { ColorDepth, ScreenSize } from '@fq2ts/engine/screen';
 import type { World } from '@fq2ts/engine/world';
 import { Game, type Config, type Content } from '@fq2ts/engine/game';
 import type { Bestiary } from '@fq2ts/engine/combat';
@@ -155,15 +155,16 @@ class Connection<F extends FlagRecord, W extends WorldRecord = WorldRecord> {
     // Where the player is connecting from.
     public readonly address: string;
 
-    // `colors` is how many the player's terminal shows.
-    public constructor(send: (text: string) => void, hangUp: () => void, address: string, colors: ColorDepth, name?: string) {
+    // `colors` is how many the player's terminal shows; `size` is the game's
+    // screen (Config.screen).
+    public constructor(send: (text: string) => void, hangUp: () => void, address: string, colors: ColorDepth, size: ScreenSize, name?: string) {
         this.address = address;
         this.io = new RemoteIO((text) => {
             if (!this.closed) {
                 send(text);
             }
-        });
-        this.term = new Terminal({ input: this.io.input, output: this.io.output, colors, ...(name === undefined ? {} : { name }) });
+        }, size);
+        this.term = new Terminal({ input: this.io.input, output: this.io.output, colors, size, ...(name === undefined ? {} : { name }) });
         this.hangUp = hangUp;
     }
 
@@ -213,7 +214,9 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
         store: new Store(options.database, { log, mailbox: rules.mailbox, newsDays: rules.newsDays }),
     };
     const connections = new Set<Connection<F, W>>();
-    const connect = (send: (text: string) => void, hangUp: () => void, address: string, colors: ColorDepth): Connection<F, W> => new Connection<F, W>(send, hangUp, normalAddress(address), colors, options.gameName);
+    // The page, with the game's screen size for the browser's terminal.
+    const page = PAGE.replace('data-cols="80" data-rows="25"', `data-cols="${config.screen.width}" data-rows="${config.screen.height}"`);
+    const connect = (send: (text: string) => void, hangUp: () => void, address: string, colors: ColorDepth): Connection<F, W> => new Connection<F, W>(send, hangUp, normalAddress(address), colors, config.screen, options.gameName);
     const guard = new Guard({ rules, now: options.now ?? Date.now });
     // Ends every connection from an address (it's been banned).
     const kickAddress = (address: string, message: string): void => {
@@ -506,7 +509,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                 }
 
                 if (url.pathname === '/') {
-                    return new Response(PAGE, { headers: { ...HEADERS, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': PAGE_POLICY } });
+                    return new Response(page, { headers: { ...HEADERS, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': PAGE_POLICY } });
                 }
 
                 if (url.pathname === '/wterm.js' || url.pathname === '/wterm.css') {
@@ -546,7 +549,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                         return;
                     }
                     // The page says its size straight away; if it doesn't,
-                    // start anyway (at 80x25).
+                    // start anyway (at the game's size).
                     setTimeout(() => {
                         begin(connection);
                     }, WINDOW_SIZE_WAIT);

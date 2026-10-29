@@ -1,7 +1,7 @@
 // The whole server, on real sockets: the web page and its web socket.
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startServer, type RunningServer, type ServerOptions } from '../src/server.ts';
 import { ScreenModel } from './screen-model.ts';
@@ -10,6 +10,7 @@ import { runAdmin } from '../src/admin-cli.ts';
 import { tempDir } from '@fq2ts/engine/testing';
 import { content, FIXTURE_DATA, type TestFlags } from '@fq2ts/engine/fixture';
 import { MOD_API, readMod, type ModContext } from '@fq2ts/engine/mods';
+import { blankMap, mapFileName, writeMap } from '@fq2ts/engine/world';
 
 const DOWN = '\x1b[B';
 
@@ -69,7 +70,7 @@ interface Client {
 async function browser(port: number, { size = [80, 25] as [number, number] | null, headers = {} } = {}): Promise<Client & { ws: WebSocket }> {
     let text = '';
     let isClosed = false;
-    const model = new ScreenModel();
+    const model = new ScreenModel(size ? { width: size[0], height: size[1] } : undefined);
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers });
     ws.onmessage = (event: MessageEvent<string>) => {
         text += event.data;
@@ -427,6 +428,46 @@ describe('the realm', () => {
         bob.send('\x03');
         await bob.closed();
         await ann.sees('Bob leaves the realm.');
+    });
+});
+
+describe('a game made for 120x37', () => {
+    // Test Quest at 120x37: its screens 119x34 and blank, so with no triggers.
+    function bigGame(): RunningServer {
+        const data = tempDir();
+        cpSync(FIXTURE_DATA, data, { recursive: true });
+        const configFile = join(data, 'config.json');
+        writeFileSync(configFile, JSON.stringify({ ...JSON.parse(readFileSync(configFile, 'utf8')), screen: { width: 120, height: 37 } }));
+        rmSync(join(data, 'maps'), { recursive: true });
+        mkdirSync(join(data, 'maps'));
+        for (const screen of [1, 2, 3, 82]) {
+            writeFileSync(join(data, 'maps', mapFileName(screen)), writeMap(blankMap(screen, screen === 3 ? 2 : 1, undefined, { width: 119, height: 34 })));
+        }
+        return start({ dataDir: data, content: { ...content, screens: {} } });
+    }
+
+    test("the page opens the browser's terminal at the game's size", async () => {
+        const server = bigGame();
+        const page = await fetch(`http://127.0.0.1:${server.webPort ?? 0}/`);
+        const html = await page.text();
+        expect(html).toContain('<div id="screen" data-cols="120" data-rows="37">');
+        // (The page's script, and so its hash, are the same at any size.)
+        const script = /<script type="module">([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+        expect(page.headers.get('content-security-policy')).toContain(`'sha256-${new Bun.CryptoHasher('sha256').update(script).digest('base64')}'`);
+    });
+
+    test('a player plays it, with the status bar under the 34-row map', async () => {
+        const server = bigGame();
+        const ann = await browser(server.webPort ?? 0, { size: [120, 37] });
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        expect(ann.screen().split('\n')[34]).toContain('HP 100/100');
+    });
+
+    test('a window smaller than the game is refused', async () => {
+        const server = bigGame();
+        const client = await browser(server.webPort ?? 0);
+        await client.sees('needs a terminal of at least 120x37 (this one is 80x25)');
     });
 });
 

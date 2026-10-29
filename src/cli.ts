@@ -12,6 +12,8 @@ import { parseArgs } from 'node:util';
 import type { Content } from '@fq2ts/engine/game';
 import type { FlagRecord } from '@fq2ts/engine/player';
 import { loadMods, readModList, type LoadedMod } from '@fq2ts/engine/mods';
+import { readConfig } from '@fq2ts/engine/game';
+import { mapSize } from '@fq2ts/engine/world';
 import { startServer, type RunningServer } from './server.ts';
 import { DEFAULT_RULES, RULE_OPTIONS, type Rules } from './rules.ts';
 import { smtpMailer, type Mailer } from './mail.ts';
@@ -184,7 +186,9 @@ export async function runServer<F extends FlagRecord, W extends WorldRecord = Wo
     const mail = mailer();
     let mods: LoadedMod[] = [];
     try {
-        mods = await loadMods(resolve(setting('mods', 'mods')), readModList(setting('enable-mods'), both('enable-mods')));
+        // (Their screens are the game's map size.)
+        const { screen } = readConfig(JSON.parse(readFileSync(join(gameData, 'config.json'), 'utf8')));
+        mods = await loadMods(resolve(setting('mods', 'mods')), readModList(setting('enable-mods'), both('enable-mods')), mapSize(screen));
     } catch (error) {
         fail(`A mod couldn't be loaded: ${error instanceof Error ? error.message : String(error)}`);
     }

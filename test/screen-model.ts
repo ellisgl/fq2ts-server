@@ -6,14 +6,23 @@
 // It knows what the engine sends: cursor moves (CSI row;col H), clearing
 // (CSI 2J), carriage returns and line feeds. Colours and modes are skipped.
 
-import { HEIGHT, WIDTH } from '@fq2ts/engine/screen';
+import { DEFAULT_SIZE, type ScreenSize } from '@fq2ts/engine/screen';
 
 export class ScreenModel {
-    private readonly rows: string[][] = Array.from({ length: HEIGHT }, () => Array.from({ length: WIDTH }, () => ' '));
+    private readonly rows: string[][];
+    private readonly width: number;
+    private readonly height: number;
     private row = 0;
     private col = 0;
     // The start of an escape sequence split across chunks.
     private pending = '';
+
+    // `size` is the game's screen (80x25 unless it says otherwise).
+    public constructor({ width, height }: ScreenSize = DEFAULT_SIZE) {
+        this.width = width;
+        this.height = height;
+        this.rows = Array.from({ length: height }, () => Array.from({ length: width }, () => ' '));
+    }
 
     public feed(chunk: string): void {
         const text = this.pending + chunk;
@@ -48,12 +57,12 @@ export class ScreenModel {
                 this.col = 0;
                 i++;
             } else if (ch === '\n') {
-                this.row = Math.min(this.row + 1, HEIGHT - 1);
+                this.row = Math.min(this.row + 1, this.height - 1);
                 i++;
             } else {
                 const point = String.fromCodePoint(text.codePointAt(i) ?? 32);
                 const row = this.rows[this.row];
-                if (row && this.col < WIDTH) {
+                if (row && this.col < this.width) {
                     row[this.col] = point;
                 }
                 this.col++;
