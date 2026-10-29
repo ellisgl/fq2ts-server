@@ -27,6 +27,7 @@ import { ServerWorld } from './world-state.ts';
 import { Days } from './days.ts';
 import { attack } from './pvp.ts';
 import { inn } from './inn.ts';
+import { BountyHunters } from './hunters.ts';
 import { adminMenu } from './admin.ts';
 import { Gifts } from './gifts.ts';
 import { bountyBoard } from './bounty.ts';
@@ -252,6 +253,7 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
             connection.close();
         }
     };
+    const hunters = new BountyHunters({ store: shared.store, world: shared.world, items: shared.items, odds: rules.hunterOdds });
     const days = new Days<F, W>({ store: shared.store, content: shared.content, realm, now });
     // Accounts no one finished making give their names back (now, and as
     // each day turns).
@@ -392,8 +394,13 @@ export function startServer<F extends FlagRecord, W extends WorldRecord = WorldR
                     news: (text) => {
                         shared.store.addNews(text, Date.now());
                     },
+                    // Players with a price on their head are hunted.
+                    ambush: (player) => hunters.ambush(id, player),
                     fought: (_player, monster, result) => {
-                        if (result === 'lost') {
+                        const hunted = hunters.fought(id, name, monster, result, Date.now());
+                        if (hunted !== null) {
+                            game.notify(hunted);
+                        } else if (result === 'lost') {
                             shared.store.addNews(lostFight(name, monster), Date.now());
                         }
                     },

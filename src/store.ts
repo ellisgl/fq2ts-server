@@ -246,6 +246,12 @@ export class Store {
         });
     }
 
+    // The gold on a player's head (0 for none).
+    public bountyOn(targetId: number): number {
+        const row: unknown = this.db.query('SELECT COALESCE(SUM(amount), 0) AS total FROM bounties WHERE target_id = $id').get({ id: targetId });
+        return row === null ? 0 : field(record(row, 'bounty'), 'total', 'bounty', integer);
+    }
+
     // Takes down every bounty on a player; what they came to.
     public claimBounties(targetId: number): number {
         return this.db.transaction(() => {

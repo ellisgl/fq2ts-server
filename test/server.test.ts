@@ -207,6 +207,19 @@ describe('playing', () => {
         await bob.sees('Ann (sleeping)');
     });
 
+    test('a player with a price on their head meets a bounty hunter on wild ground', async () => {
+        const database = join(tempDir(), 'game.sqlite');
+        const server = start({ database, rules: { hunterOdds: 1 } });
+        const ann = await browser(server.webPort ?? 0);
+        await newPlayer(ann, 'Ann');
+        await ann.sees('HP 100/100');
+        // (Someone puts $30 on her head, from outside.)
+        new Store(database).postBounty(1, 1, 30, Date.now());
+        // (Past the start's two trigger tiles, which start no fights, to grass.)
+        ann.send('\x1b[C\x1b[C\x1b[C');
+        await ann.sees('"There\'s a price on your head,"');
+    });
+
     test('a window smaller than 80x25 is turned away', async () => {
         const server = start();
         const client = await browser(server.webPort ?? 0, { size: [70, 20] });

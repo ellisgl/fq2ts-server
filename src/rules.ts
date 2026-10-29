@@ -9,6 +9,7 @@ import { MAX_EMAILS } from './session.ts';
 import { MAILBOX, NEWS_DAYS } from './store.ts';
 import { LETTERS_PER_VISIT } from './talk.ts';
 import { INN_COST } from './inn.ts';
+import { HUNTER_ODDS } from './hunters.ts';
 import { DEFAULT_GUARD, type GuardRules } from './guard.ts';
 
 // (The guard's rules, on connections and wrong passwords, are among them.)
@@ -36,6 +37,9 @@ export interface Rules extends GuardRules {
     // Days players who've left stay on the map (sleeping where they were,
     // for anyone to find); 0 takes them off as they leave.
     awayDays: number;
+    // One step onto wild ground in this many brings a bounty hunter out,
+    // for a player with a price on their head; 0 for no hunters.
+    hunterOdds: number;
 }
 
 export const DEFAULT_RULES: Rules = {
@@ -50,6 +54,7 @@ export const DEFAULT_RULES: Rules = {
     unfinishedAccountDays: 7,
     innCost: INN_COST,
     awayDays: 7,
+    hunterOdds: HUNTER_ODDS,
     ...DEFAULT_GUARD,
 };
 
@@ -75,6 +80,7 @@ export const RULE_OPTIONS = [
     { rule: 'unfinishedAccountDays', option: 'unfinished-account-days', help: 'days before an account never confirmed is removed', min: 1 },
     { rule: 'innCost', option: 'inn-cost', help: 'what a room at an inn costs', min: 0 },
     { rule: 'awayDays', option: 'away-days', help: 'days players who leave stay on the map, sleeping (0: none do)', min: 0 },
+    { rule: 'hunterOdds', option: 'hunter-odds', help: 'bounty hunters come 1 step in N, for players with a bounty (0: never)', min: 0 },
     { rule: 'connectionsPerMinute', option: 'connections-per-minute', help: 'connections an address can make a minute', min: 1 },
     { rule: 'loginFailuresPerAddress', option: 'login-failures-per-address', help: 'wrong passwords from an address before logins from it stop', min: 1 },
     { rule: 'loginFailuresPerAccount', option: 'login-failures-per-account', help: 'wrong passwords for an account before logins to it stop', min: 1 },
