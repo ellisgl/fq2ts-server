@@ -2,7 +2,7 @@
 // password. Through an SMTP server (nodemailer), or, with none set up, into
 // the server's log (for trying the server out).
 
-import { createTransport } from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 
 export interface Email {
     to: string;
@@ -24,16 +24,23 @@ export interface SmtpOptions {
     from: string;
 }
 
+// nodemailer is loaded with the first email, not before: it's a good part
+// of the server's memory, and a server may send none for days.
 export function smtpMailer({ host, port, user, password, from }: SmtpOptions): Mailer {
-    const transport = createTransport({
-        host,
-        port,
-        secure: port === 465,
-        ...(user === undefined ? {} : { auth: { user, pass: password ?? '' } }),
-    });
+    let transport: Promise<Transporter> | null = null;
+    const connect = async (): Promise<Transporter> => {
+        const { createTransport } = await import('nodemailer');
+        return createTransport({
+            host,
+            port,
+            secure: port === 465,
+            ...(user === undefined ? {} : { auth: { user, pass: password ?? '' } }),
+        });
+    };
     return {
         send: async ({ to, subject, text }) => {
-            await transport.sendMail({ from, to, subject, text });
+            transport ??= connect();
+            await (await transport).sendMail({ from, to, subject, text });
         },
     };
 }

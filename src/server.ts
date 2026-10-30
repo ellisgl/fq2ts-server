@@ -120,16 +120,18 @@ const HEADERS = {
 };
 
 // The terminal on the page (wterm), built for the browser from its package
-// the first time it's asked for, and its stylesheet.
+// the first time it's asked for, and its stylesheet. It's built by another
+// bun, which then exits: the bundler's memory (several MB, which a process
+// doesn't give back) goes with it, rather than staying in the server's.
 let terminalFiles: Promise<{ script: string; style: string }> | null = null;
 function terminal(): Promise<{ script: string; style: string }> {
     terminalFiles ??= (async () => {
-        const built = await Bun.build({ entrypoints: [Bun.resolveSync('@wterm/dom', import.meta.dir)], target: 'browser', format: 'esm', minify: true });
-        const [script] = built.outputs;
-        if (!script) {
-            throw new Error("The web page's terminal couldn't be built.");
+        const build = Bun.spawn([process.execPath, 'build', Bun.resolveSync('@wterm/dom', import.meta.dir), '--target=browser', '--format=esm', '--minify'], { stdout: 'pipe', stderr: 'pipe' });
+        const [script, errors, code] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text(), build.exited]);
+        if (code !== 0 || !script) {
+            throw new Error(`The web page's terminal couldn't be built: ${errors.trim() || `bun build exited with ${code}`}`);
         }
-        return { script: await script.text(), style: await Bun.file(Bun.resolveSync('@wterm/dom/css', import.meta.dir)).text() };
+        return { script, style: await Bun.file(Bun.resolveSync('@wterm/dom/css', import.meta.dir)).text() };
     })();
     return terminalFiles;
 }
